@@ -1,4 +1,4 @@
-"""Shared FastAPI dependencies: service authentication, store access, pagination."""
+"""Shared FastAPI dependencies: gateway bearer auth, store access, pagination."""
 
 import base64
 import binascii
@@ -11,18 +11,38 @@ from fastapi import Depends, Header, Query, Request
 from telco_mcp_lab.mock_apis.problems import ApiProblem
 from telco_mcp_lab.mock_apis.store import OrderStore
 
+_REALM = 'Bearer realm="mock-gateway"'
 
-def require_service_key(
-    request: Request, x_api_key: Annotated[str | None, Header()] = None
+
+def require_gateway_token(
+    request: Request, authorization: Annotated[str | None, Header()] = None
 ) -> None:
-    """Service-to-service auth: only our MCP server holds this key.
+    """Gateway authentication: `Authorization: Bearer <token>` (RFC 6750).
+
+    In this lab the token is static (from `.env`). A real gateway would
+    validate a JWT: signature, expiry and audience. The MCP server's side of
+    this is a `TokenProvider` (mcp_server/clients/gateway.py), so swapping in
+    OAuth client-credentials later doesn't touch any tool code.
 
     `hmac.compare_digest` is constant-time, so response timing does not leak
-    how many leading characters of a guessed key were right.
+    how many leading characters of a guessed token were right.
     """
-    expected: str = request.app.state.settings.api_key.get_secret_value()
-    if x_api_key is None or not hmac.compare_digest(x_api_key, expected):
-        raise ApiProblem(401, "UNAUTHENTICATED", "Missing or invalid X-Api-Key.")
+    expected: str = request.app.state.settings.gateway_token.get_secret_value()
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise ApiProblem(
+            401,
+            "UNAUTHENTICATED",
+            "Missing bearer token. Send Authorization: Bearer <token>.",
+            headers={"WWW-Authenticate": _REALM},
+        )
+    if not hmac.compare_digest(token.strip(), expected):
+        raise ApiProblem(
+            401,
+            "INVALID_TOKEN",
+            "The bearer token is invalid or expired.",
+            headers={"WWW-Authenticate": f'{_REALM}, error="invalid_token"'},
+        )
 
 
 def get_store(request: Request) -> OrderStore:

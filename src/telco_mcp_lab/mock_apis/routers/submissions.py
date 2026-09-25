@@ -23,7 +23,7 @@ from telco_mcp_lab.mock_apis.deps import StoreDep
 from telco_mcp_lab.mock_apis.problems import ApiProblem
 from telco_mcp_lab.mock_apis.store import StoreError
 
-router = APIRouter(tags=["Order Submission API"])
+router = APIRouter(prefix="/submission", tags=["Order Submission API"])
 
 _KEY_RE = re.compile(ids.IDEMPOTENCY_KEY)
 
@@ -33,7 +33,7 @@ class SubmissionRequest(BaseModel):
     draft_id: str = Field(pattern=ids.DRAFT_ID)
 
 
-@router.post("/order-submissions", status_code=201)
+@router.post("", status_code=201)
 def submit_order(
     req: SubmissionRequest,
     response: Response,

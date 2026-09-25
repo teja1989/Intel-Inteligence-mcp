@@ -20,46 +20,50 @@ help: ## Show this help
 setup: ## Install Python 3.12 + pinned dependencies (uv.lock) into .venv
 	$(UV) sync --locked
 
-env: ## Create .env from .env.example with a freshly generated MOCK_API_KEY (won't overwrite)
+env: ## Create .env from .env.example with a freshly generated gateway token (won't overwrite)
 	@if [ -f .env ]; then echo ".env already exists; leaving it alone."; else \
-	  key=$$($(RUN) python -c 'import secrets; print(secrets.token_urlsafe(32))'); \
-	  sed "s|^MOCK_API_KEY=.*|MOCK_API_KEY=$$key|" .env.example > .env; \
-	  chmod 600 .env; echo "Created .env (mode 600) with a random MOCK_API_KEY."; fi
+	  tok=$$($(RUN) python -c 'import secrets; print(secrets.token_urlsafe(32))'); \
+	  sed -e "s|^MOCK_GATEWAY_TOKEN=.*|MOCK_GATEWAY_TOKEN=$$tok|" \
+	      -e "s|^GATEWAY_TOKEN=.*|GATEWAY_TOKEN=$$tok|" .env.example > .env; \
+	  chmod 600 .env; echo "Created .env (mode 600) with a random gateway token."; fi
 
 ##@ Run (each in its own terminal)
 .PHONY: mocks
-mocks: ## Start the mock telecom backend on 127.0.0.1:8081 (OpenAPI UI at /docs)
+mocks: ## Start the mock API gateway + backends on 127.0.0.1:8081 (OpenAPI UI at /docs)
 	$(RUN) python -m telco_mcp_lab.mock_apis
 
 ##@ Chaos switch (mock backend must be running)
 .PHONY: chaos-slow chaos-fail chaos-off chaos-status
 chaos-slow: ## Make every backend call take 5 s (timeout testing)
-	@$(LOAD_ENV); curl -sf -X POST "$(MOCK_URL)/_admin/chaos" -H "X-Api-Key: $$MOCK_API_KEY" \
+	@$(LOAD_ENV); curl -sf -X POST "$(MOCK_URL)/_admin/chaos" -H "Authorization: Bearer $$MOCK_GATEWAY_TOKEN" \
 	  -H 'content-type: application/json' -d '{"delay_ms":5000}'; echo
 chaos-fail: ## Make every backend call fail with HTTP 503
-	@$(LOAD_ENV); curl -sf -X POST "$(MOCK_URL)/_admin/chaos" -H "X-Api-Key: $$MOCK_API_KEY" \
+	@$(LOAD_ENV); curl -sf -X POST "$(MOCK_URL)/_admin/chaos" -H "Authorization: Bearer $$MOCK_GATEWAY_TOKEN" \
 	  -H 'content-type: application/json' -d '{"fail_rate":1.0,"fail_status":503}'; echo
 chaos-off: ## Turn all chaos off
-	@$(LOAD_ENV); curl -sf -X POST "$(MOCK_URL)/_admin/chaos" -H "X-Api-Key: $$MOCK_API_KEY" \
+	@$(LOAD_ENV); curl -sf -X POST "$(MOCK_URL)/_admin/chaos" -H "Authorization: Bearer $$MOCK_GATEWAY_TOKEN" \
 	  -H 'content-type: application/json' -d '{}'; echo
 chaos-status: ## Show current chaos settings
-	@$(LOAD_ENV); curl -sf "$(MOCK_URL)/_admin/chaos" -H "X-Api-Key: $$MOCK_API_KEY"; echo
+	@$(LOAD_ENV); curl -sf "$(MOCK_URL)/_admin/chaos" -H "Authorization: Bearer $$MOCK_GATEWAY_TOKEN"; echo
 
 ##@ Test & quality
-.PHONY: test test-fast test-mocks test-security smoke lint fmt check
+.PHONY: test test-fast test-mocks test-client test-security smoke lint fmt check
 test: ## Run the full pytest suite
 	$(RUN) pytest
 
 test-fast: ## Run tests except the deliberately slow ones
 	$(RUN) pytest -m "not slow"
 
-test-mocks: ## Run only the mock-backend tests
+test-mocks: ## Run only the mock-gateway tests
 	$(RUN) pytest tests/mock_apis
+
+test-client: ## Run only the MCP-side gateway client tests
+	$(RUN) pytest tests/mcp_server
 
 test-security: ## Run only security-marked tests (auth, tenant isolation, injection, synthetic data)
 	$(RUN) pytest -m security -v
 
-smoke: ## Real-HTTP walkthrough against a RUNNING mock backend (start `make mocks` first)
+smoke: ## Real-HTTP walkthrough against the RUNNING mock gateway (start `make mocks` first)
 	$(RUN) python scripts/smoke_mocks.py
 
 lint: ## Ruff lint + format check (includes bandit-style security rules)
@@ -74,7 +78,7 @@ check: lint test ## Everything CI would run: lint + full test suite
 
 ##@ Housekeeping
 .PHONY: reset-data clean
-reset-data: ## Delete the mock backend's SQLite data (orders/drafts/idempotency)
+reset-data: ## Delete the mock gateway's SQLite data (orders/drafts/idempotency)
 	rm -rf .data
 
 clean: ## Remove caches and local data (keeps .env and .venv)

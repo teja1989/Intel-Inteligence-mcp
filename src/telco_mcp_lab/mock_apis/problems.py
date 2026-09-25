@@ -19,15 +19,25 @@ PROBLEM_JSON = "application/problem+json"
 
 
 class ApiProblem(Exception):  # noqa: N818 - named after the RFC concept
-    def __init__(self, status: int, code: str, detail: str, **extra: Any) -> None:
+    def __init__(
+        self,
+        status: int,
+        code: str,
+        detail: str,
+        headers: dict[str, str] | None = None,
+        **extra: Any,
+    ) -> None:
         super().__init__(detail)
         self.status = status
         self.code = code
         self.detail = detail
+        self.headers = headers
         self.extra = extra
 
 
-def problem_response(status: int, code: str, detail: str, **extra: Any) -> JSONResponse:
+def problem_response(
+    status: int, code: str, detail: str, headers: dict[str, str] | None = None, **extra: Any
+) -> JSONResponse:
     body = {
         "type": f"https://errors.telco-mcp-lab.invalid/{code.lower().replace('_', '-')}",
         "title": code.replace("_", " ").title(),
@@ -36,12 +46,12 @@ def problem_response(status: int, code: str, detail: str, **extra: Any) -> JSONR
         "code": code,
         **extra,
     }
-    return JSONResponse(body, status_code=status, media_type=PROBLEM_JSON)
+    return JSONResponse(body, status_code=status, media_type=PROBLEM_JSON, headers=headers)
 
 
 async def api_problem_handler(_: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, ApiProblem)
-    return problem_response(exc.status, exc.code, exc.detail, **exc.extra)
+    return problem_response(exc.status, exc.code, exc.detail, exc.headers, **exc.extra)
 
 
 async def validation_problem_handler(_: Request, exc: Exception) -> JSONResponse:

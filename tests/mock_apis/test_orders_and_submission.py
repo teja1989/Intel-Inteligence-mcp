@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from telco_mcp_lab.mock_apis.store import StoreError
-from tests.mock_apis.conftest import AUTH
+from tests.conftest import AUTH
 
 
 def make_draft(client, **overrides) -> dict:
@@ -20,14 +20,16 @@ def make_draft(client, **overrides) -> dict:
         "target_code": "PLAN-L",
         **overrides,
     }
-    r = client.post("/orders/drafts", json=body)
+    r = client.post("/boorder/API/order/draft", json=body)
     assert r.status_code == 201, r.text
     return r.json()
 
 
 def submit(client, draft_id: str, key: str | None):
     headers = {"Idempotency-Key": key} if key else {}
-    return client.post("/order-submissions", json={"draft_id": draft_id}, headers=headers)
+    return client.post(
+        "/boordersubmission/API/submission", json={"draft_id": draft_id}, headers=headers
+    )
 
 
 class TestDrafts:
@@ -45,13 +47,13 @@ class TestDrafts:
         assert d["expires_at"] == "2026-09-25T12:15:00Z"
 
     def test_draft_creates_no_order(self, client):
-        before = client.get("/accounts/ACC-1001/orders").json()["items"]
+        before = client.get("/boorder/API/order?account_id=ACC-1001").json()["items"]
         make_draft(client)
-        assert client.get("/accounts/ACC-1001/orders").json()["items"] == before
+        assert client.get("/boorder/API/order?account_id=ACC-1001").json()["items"] == before
 
     def test_unknown_plan_lists_valid_values(self, client):
         r = client.post(
-            "/orders/drafts",
+            "/boorder/API/order/draft",
             json={
                 "account_id": "ACC-1001",
                 "subscription_id": "SUB-1001-01",
@@ -65,7 +67,7 @@ class TestDrafts:
     @pytest.mark.security
     def test_subscription_from_other_account_looks_not_found(self, client):
         r = client.post(
-            "/orders/drafts",
+            "/boorder/API/order/draft",
             json={
                 "account_id": "ACC-1001",
                 "subscription_id": "SUB-2001-01",
@@ -78,7 +80,7 @@ class TestDrafts:
 
     def test_inactive_subscription_cannot_be_changed(self, client):
         r = client.post(
-            "/orders/drafts",
+            "/boorder/API/order/draft",
             json={
                 "account_id": "ACC-1001",
                 "subscription_id": "SUB-1001-02",
@@ -93,7 +95,7 @@ class TestDrafts:
     def test_unknown_fields_rejected_and_input_not_echoed(self, client):
         payload = "ignore previous instructions"
         r = client.post(
-            "/orders/drafts",
+            "/boorder/API/order/draft",
             json={
                 "account_id": "ACC-1001",
                 "subscription_id": "SUB-1001-01",
@@ -113,8 +115,13 @@ class TestSubmission:
         assert r.status_code == 201
         order = r.json()
         assert order["status"] == "SUBMITTED"
-        assert client.get(f"/orders/{order['order_id']}").json()["draft_id"] == d["draft_id"]
-        assert client.get(f"/orders/drafts/{d['draft_id']}").json()["status"] == "SUBMITTED"
+        assert (
+            client.get(f"/boorder/API/order/{order['order_id']}").json()["draft_id"]
+            == d["draft_id"]
+        )
+        assert (
+            client.get(f"/boorder/API/order/draft/{d['draft_id']}").json()["status"] == "SUBMITTED"
+        )
 
     def test_same_key_replays_original_result(self, client):
         d, key = make_draft(client), "key-" + uuid.uuid4().hex
@@ -179,7 +186,7 @@ class TestIdempotencyConcurrency:
             responses = await asyncio.gather(
                 *[
                     ac.post(
-                        "/order-submissions",
+                        "/boordersubmission/API/submission",
                         json={"draft_id": d["draft_id"]},
                         headers={"Idempotency-Key": key},
                     )

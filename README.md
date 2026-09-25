@@ -30,13 +30,13 @@ uv downloads Python 3.12 automatically if you don't have it.
 
 ```bash
 make setup     # install pinned deps (uv.lock) into .venv, Python 3.12
-make env       # create .env with a random MOCK_API_KEY (never overwrites)
+make env       # create .env with a random gateway token (never overwrites)
 make check     # lint + full test suite; should be green before anything else
 
 # terminal 1
-make mocks     # mock backend on http://127.0.0.1:8081  (OpenAPI UI: /docs)
+make mocks     # mock gateway on http://127.0.0.1:8081  (OpenAPI UI: /docs)
 # terminal 2
-make smoke     # real-HTTP walkthrough: auth, reads, draft, idempotent submit
+make smoke     # real-HTTP walkthrough: bearer auth, reads, draft, idempotent submit
 ```
 
 Run `make` for all targets. Current list:
@@ -44,10 +44,10 @@ Run `make` for all targets. Current list:
 | Target | What it does |
 |---|---|
 | `setup` / `env` | Install deps; create `.env` (mode 600, random key) |
-| `mocks` | Start the mock backend |
-| `smoke` | Scripted end-to-end check against the running backend |
+| `mocks` | Start the mock API gateway (all five microservices) |
+| `smoke` | End-to-end check against the running gateway, via the MCP gateway client |
 | `chaos-slow` / `chaos-fail` / `chaos-off` / `chaos-status` | Inject 5 s latency / 503s into the backend, or turn it off |
-| `test` / `test-fast` / `test-mocks` / `test-security` | Full suite / without slow tests / backend only / security-marked only |
+| `test` / `test-fast` / `test-mocks` / `test-client` / `test-security` | Full suite / no slow tests / mock gateway / MCP gateway client / security-marked only |
 | `lint` / `fmt` / `check` | Ruff (incl. `S` security rules) / auto-fix / lint + tests |
 | `reset-data` / `clean` | Wipe backend SQLite data / caches |
 
@@ -73,10 +73,10 @@ flowchart LR
         T --> SH
         T --> E
     end
-    CL -- "X-Api-Key<br/>(service identity)" --> B
-    subgraph B["Mock backend (FastAPI) ✅ Phase 1"]
-        A1[Account] --- A2[Subscription] --- A3[Service]
-        A4[Order + drafts] --- A5[Order Submission<br/>Idempotency-Key]
+    CL -- "/{microservice}/API/...<br/>Authorization: Bearer service token" --> B
+    subgraph B["Mock API gateway + microservices (FastAPI) ✅ Phase 1"]
+        A1[boaccount] --- A2[bosubscription] --- A3[boservice]
+        A4[boorder + drafts] --- A5[boordersubmission<br/>Idempotency-Key]
         DB[(SQLite)]
         A4 --- DB
         A5 --- DB
@@ -87,22 +87,25 @@ Two trust boundaries, deliberately different:
 
 * **User → MCP server:** bearer token → *tenant + scopes*. The tenant is
   enforced by the MCP server.
-* **MCP server → backend:** a service key. The backend trusts the MCP server
-  completely, which is why the MCP server must never let arguments choose the
-  tenant.
+* **MCP server → gateway:** the MCP server's **own** service token (Option A).
+  The caller's token is never passed through, which the MCP spec forbids. The
+  gateway and backends trust the MCP server completely, which is why the MCP
+  server must never let arguments choose the tenant.
 
 ## Repository layout
 
 ```
 src/telco_mcp_lab/
-  mock_apis/            Phase 1: FastAPI stand-ins for the telecom APIs
-    app.py              app factory, auth, error handlers, admin/chaos endpoints
+  gateway_routes.py     shared gateway path layout: /{microservice}/API/... (placeholders)
+  mock_apis/            Phase 1: FastAPI mock gateway + telecom microservices
+    app.py              app factory, bearer auth, error handlers, admin/chaos endpoints
     routers/            accounts, subscriptions, services, orders, submissions
     store.py            SQLite drafts/orders/idempotency ("exactly once" lives here)
     data.py             synthetic tenants, lines, and the prompt-injection note
     problems.py         RFC 9457 Problem Details
     chaos.py            latency/failure injection middleware
   mcp_server/           Phase 2+: security/ tools/ clients/ shaping/ errors/
+    clients/gateway.py  gateway URLs, TokenProvider seam, bearer auth, localhost interlock
 tests/                  pytest; markers: security, slow
 scripts/smoke_mocks.py  real-HTTP smoke test
 docs/                   01-concepts.md (primer), 02-mock-backend.md, … one per phase
@@ -120,6 +123,7 @@ Grows each phase. Full version and verification notes are in
 | Stateless HTTP | 2026-07-28 automatic; `stateless_http=True` for legacy clients | `spring.ai.mcp.server.protocol=STATELESS` (**2025-era protocol; see primer §6**) |
 | Downstream error format | RFC 9457 Problem Details | `ProblemDetail` / `@RestControllerAdvice` |
 | Config & secrets | `pydantic-settings` + `.env` | `@ConfigurationProperties` + env / CF user-provided service |
+| Gateway service token | `TokenProvider` + `httpx.Auth` hook | `OAuth2AuthorizedClientManager` + `OAuth2ClientHttpRequestInterceptor` |
 | Idempotent submit | unique `(account, key)` + `BEGIN IMMEDIATE` | unique index + `@Transactional` |
 | Timeouts/retry/breaker | httpx + small wrapper (Phase 3) | Resilience4j (`@TimeLimiter`, `@Retry`, `@CircuitBreaker`) |
 
@@ -141,9 +145,19 @@ Grows each phase. Full version and verification notes are in
 * [docs/01-concepts.md](docs/01-concepts.md): host/client/server, primitives,
   JSON-RPC, transports, what 2026-07-28 changed, why stateless matters on CF,
   security model.
-* [docs/02-mock-backend.md](docs/02-mock-backend.md): APIs, synthetic data,
-  Problem Details, draft → submit, idempotency guarantees, chaos switch.
+* [docs/02-mock-backend.md](docs/02-mock-backend.md): gateway conventions and
+  auth, APIs, synthetic data, Problem Details, draft → submit, idempotency
+  guarantees, chaos switch.
 
-## Open questions
+## Decisions log
 
-* **Azure OpenAI "proxy way"** (needed for Phase 5): see the question at the end of Phase 1.
+| Decision | Choice |
+|---|---|
+| Python | 3.12, exact pins + `uv.lock` |
+| Config | `.env` only (gitignored), `.env.example` committed |
+| Domain API access | Via API gateway, `/{microservice}/API/{resource}`, placeholder names |
+| Gateway auth | **Option A**: MCP server's own service token (no passthrough); static now, `TokenProvider` seam for OAuth later |
+| Lab targets | Mock gateway only; non-localhost refused unless explicitly allowed |
+| Azure OpenAI | Through your HTTPS proxy, API key from `.env` (details confirmed in Phase 5) |
+| Idempotency key | Model-supplied argument, enforced by backend; risk documented and tested |
+| Destructive calls | Host asks for y/N confirmation before `submit_order` |

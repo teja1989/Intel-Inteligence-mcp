@@ -8,9 +8,9 @@ from fastapi import APIRouter, Path, Query
 from telco_mcp_lab.mock_apis import data, ids
 from telco_mcp_lab.mock_apis.deps import PageDep
 from telco_mcp_lab.mock_apis.problems import ApiProblem
-from telco_mcp_lab.mock_apis.routers.accounts import AccountIdPath, load_account
+from telco_mcp_lab.mock_apis.routers.accounts import AccountIdQuery, load_account
 
-router = APIRouter(tags=["Subscription API"])
+router = APIRouter(prefix="/subscription", tags=["Subscription API"])
 
 
 class SubscriptionStatus(StrEnum):
@@ -19,9 +19,9 @@ class SubscriptionStatus(StrEnum):
     TERMINATED = "TERMINATED"
 
 
-@router.get("/accounts/{account_id}/subscriptions")
+@router.get("")
 def list_subscriptions(
-    account_id: AccountIdPath,
+    account_id: AccountIdQuery,
     page: PageDep,
     status: Annotated[SubscriptionStatus | None, Query()] = None,
 ) -> dict:
@@ -38,7 +38,7 @@ def list_subscriptions(
     }
 
 
-@router.get("/subscriptions/{subscription_id}")
+@router.get("/{subscription_id}")
 def get_subscription(
     subscription_id: Annotated[str, Path(pattern=ids.SUBSCRIPTION_ID)],
 ) -> dict:

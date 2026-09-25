@@ -5,11 +5,12 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from telco_mcp_lab.gateway_routes import GatewayRoutes
 from telco_mcp_lab.mock_apis.app import create_app
 from telco_mcp_lab.mock_apis.settings import MockApiSettings
 
-TEST_KEY = "test-service-key-0123456789"
-AUTH = {"X-Api-Key": TEST_KEY}
+TEST_TOKEN = "test-gateway-token-0123456789"
+AUTH = {"Authorization": f"Bearer {TEST_TOKEN}"}
 
 
 class FakeClock:
@@ -36,15 +37,20 @@ def settings(tmp_path) -> MockApiSettings:
     # can never leak into (or break) the test run.
     return MockApiSettings(
         _env_file=None,
-        api_key=SecretStr(TEST_KEY),
+        gateway_token=SecretStr(TEST_TOKEN),
         db_path=tmp_path / "test.sqlite3",
         draft_ttl_seconds=900,
     )
 
 
 @pytest.fixture
-def app(settings, clock):
-    return create_app(settings, clock=clock)
+def routes() -> GatewayRoutes:
+    return GatewayRoutes(_env_file=None)  # placeholder defaults, independent of .env
+
+
+@pytest.fixture
+def app(settings, routes, clock):
+    return create_app(settings, routes, clock=clock)
 
 
 @pytest.fixture

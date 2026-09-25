@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from telco_mcp_lab.mock_apis.problems import problem_response
 
@@ -38,3 +39,19 @@ class ChaosMiddleware(BaseHTTPMiddleware):
                 "Chaos switch injected this failure. The backend is temporarily unavailable.",
             )
         return await call_next(request)
+
+
+class TrailingSlashMiddleware:
+    """Treat `/x/` and `/x` as the same route, as many API gateways do.
+
+    Without this, Starlette answers `/bosubscription/API/subscription/` with a
+    307 redirect, and httpx does not follow redirects by default.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and len(scope["path"]) > 1 and scope["path"].endswith("/"):
+            scope = dict(scope, path=scope["path"].rstrip("/") or "/")
+        await self.app(scope, receive, send)

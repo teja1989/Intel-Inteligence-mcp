@@ -2,14 +2,15 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Path, Query
 
 from telco_mcp_lab.mock_apis import data, ids
 from telco_mcp_lab.mock_apis.problems import ApiProblem
 
-router = APIRouter(prefix="/accounts", tags=["Account API"])
+router = APIRouter(prefix="/account", tags=["Account API"])
 
 AccountIdPath = Annotated[str, Path(pattern=ids.ACCOUNT_ID)]
+AccountIdQuery = Annotated[str, Query(pattern=ids.ACCOUNT_ID)]
 
 
 def load_account(account_id: str) -> dict:

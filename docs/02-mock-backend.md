@@ -1,33 +1,67 @@
-# 02 · Mock telecom backend
+# 02 · Mock API gateway and telecom backends
 
-The mock backend stands in for your real telecom APIs. It's deliberately
-**dumb and trusting**. It authenticates its *service caller* (the MCP server)
-with a shared API key, but knows nothing about end users or tenants. That
-mirrors a typical enterprise setup, and it's why the MCP server has to enforce
-the tenant boundary (Phase 3).
+One FastAPI process plays **both** your API gateway and the five domain
+microservices behind it. It's deliberately **dumb and trusting**. It checks the
+*service* bearer token of its caller (the MCP server), but knows nothing about
+end users or tenants. That mirrors a typical enterprise setup, and it's why the
+MCP server has to enforce the tenant boundary (Phase 3).
+
+## Gateway conventions
+
+```
+{GATEWAY_BASE_URL}/{microservice}/{GATEWAY_API_SEGMENT}/{resource}[/{id}]
+http://127.0.0.1:8081/bosubscription/API/subscription/SUB-1001-01
+Authorization: Bearer <token>
+```
+
+* **Microservice names are placeholders** (`boaccount`, `bosubscription`,
+  `boservice`, `boorder`, `boordersubmission`), set via `GATEWAY_SVC_*` in `.env`.
+  Both the mock (to mount routes) and the MCP client (to build URLs) read the same
+  variables from `src/telco_mcp_lab/gateway_routes.py`, and a test calls the
+  mock *through* the client to prove they agree.
+* **Trailing slash tolerated**: `/subscription/` and `/subscription` are the
+  same route, like your gateway example.
+* **Auth (Option A: service token).** The MCP server sends *its own* token, from
+  `GATEWAY_TOKEN`. It never forwards the token its caller sent; the MCP spec
+  forbids that ("The MCP server MUST NOT pass through the token it received from
+  the MCP client", 2026-07-28 Authorization · Security Considerations).
+  Failures follow RFC 6750:
+  * no or malformed header: `401 UNAUTHENTICATED` + `WWW-Authenticate: Bearer realm="mock-gateway"`
+  * wrong token: `401 INVALID_TOKEN` + `WWW-Authenticate: Bearer realm="mock-gateway", error="invalid_token"`
+  * the presented token is never echoed back.
+* **The token seam** (`mcp_server/clients/gateway.py`): code depends on a
+  `TokenProvider`. Today that's `StaticTokenProvider` (from `.env`). An OAuth2
+  client-credentials provider (fetch, cache, refresh) can replace it later
+  without touching tools. *Java:* `OAuth2AuthorizedClientManager` +
+  `OAuth2ClientHttpRequestInterceptor` on a `RestClient`.
+* **Safety interlock**: the client refuses any non-localhost `GATEWAY_BASE_URL`
+  unless `GATEWAY_ALLOW_NON_LOCAL=true`, and then requires https. This lab
+  must only ever touch synthetic data.
 
 ```
 make mocks          # http://127.0.0.1:8081, OpenAPI UI at /docs
-make smoke          # scripted curl walkthrough against a running mock
-make test-mocks     # pytest for this component only
+make smoke          # real-HTTP walkthrough using the MCP server's gateway client
+make test-mocks     # pytest: mock gateway
+make test-client    # pytest: MCP-side gateway client (URLs, token, interlock)
 ```
 
 ## APIs
 
-All endpoints except `/health` require `X-Api-Key: $MOCK_API_KEY`.
+All endpoints except `/health` require `Authorization: Bearer $MOCK_GATEWAY_TOKEN`.
+Paths below use the placeholder names.
 
 | API | Method & path | Notes |
 |---|---|---|
-| Account | `GET /accounts/{account_id}` | Full PII + free-text `notes` (**ACC-1001 notes carry a prompt injection**) |
-| Subscription | `GET /accounts/{account_id}/subscriptions?status=&limit=&cursor=` | Paginated, `status ∈ {ACTIVE, SUSPENDED, TERMINATED}` |
-| | `GET /subscriptions/{subscription_id}` | |
-| Service | `GET /services/{service_id}` | SIM, features, add-ons, `notes` |
-| Order | `GET /accounts/{account_id}/orders?limit=&cursor=` | Newest first |
-| | `GET /orders/{order_id}` | |
-| | `POST /orders/drafts` | Creates a **draft** (quote). Nothing executes |
-| | `GET /orders/drafts/{draft_id}` | |
-| Order Submission | `POST /order-submissions` + `Idempotency-Key` header | Draft → real order, **idempotent** |
-| Ops | `GET /health` · `GET/POST /_admin/chaos` | Chaos switch (key required) |
+| Account | `GET /boaccount/API/account/{account_id}` | Full PII + free-text `notes` (**ACC-1001 notes carry a prompt injection**) |
+| Subscription | `GET /bosubscription/API/subscription?account_id=&status=&limit=&cursor=` | Paginated, `status ∈ {ACTIVE, SUSPENDED, TERMINATED}` |
+| | `GET /bosubscription/API/subscription/{subscription_id}` | |
+| Service | `GET /boservice/API/service/{service_id}` | SIM, features, add-ons, `notes` |
+| Order | `GET /boorder/API/order?account_id=&limit=&cursor=` | Newest first |
+| | `GET /boorder/API/order/{order_id}` | |
+| | `POST /boorder/API/order/draft` | Creates a **draft** (quote). Nothing executes |
+| | `GET /boorder/API/order/draft/{draft_id}` | |
+| Order Submission | `POST /boordersubmission/API/submission` + `Idempotency-Key` header | Draft → real order, **idempotent** |
+| Ops | `GET /health` · `GET/POST /_admin/chaos` | Gateway-level; chaos needs the token |
 
 ID formats (`mock_apis/ids.py`) are strict regexes: `ACC-1001`, `SUB-1001-01`,
 `SVC-1001-01`, `ORD-000123`, `DRF-<32 hex>`. Strict formats are a cheap
@@ -75,12 +109,12 @@ input value**, which might be PII or an injection payload.
 ```mermaid
 sequenceDiagram
     participant M as MCP server
-    participant O as Order API
-    participant S as Order Submission API
-    M->>O: POST /orders/drafts {account, subscription, CHANGE_PLAN, PLAN-L}
+    participant O as boorder (via gateway)
+    participant S as boordersubmission (via gateway)
+    M->>O: POST /boorder/API/order/draft {account, subscription, CHANGE_PLAN, PLAN-L}
     O-->>M: 201 {draft_id, price_summary, expires_at (+15 min)}
     Note over M: host shows price to the human and asks to confirm
-    M->>S: POST /order-submissions {draft_id}<br/>Idempotency-Key: 7f3c…
+    M->>S: POST /boordersubmission/API/submission {draft_id}<br/>Idempotency-Key: 7f3c…
     S-->>M: 201 {order_id: ORD-100001}
     M->>S: (timeout → retry) same body, same key
     S-->>M: 200 same body, Idempotent-Replayed: true

@@ -13,12 +13,12 @@ class TestChaos:
     def test_delay_is_applied(self, client):
         client.post("/_admin/chaos", json={"delay_ms": 300})
         start = time.perf_counter()
-        assert client.get("/accounts/ACC-1001").status_code == 200
+        assert client.get("/boaccount/API/account/ACC-1001").status_code == 200
         assert time.perf_counter() - start >= 0.3
 
     def test_failure_injection_returns_problem(self, client):
         client.post("/_admin/chaos", json={"fail_rate": 1.0, "fail_status": 503})
-        r = client.get("/accounts/ACC-1001")
+        r = client.get("/boaccount/API/account/ACC-1001")
         assert r.status_code == 503
         assert r.json()["code"] == "INJECTED_FAILURE"
 
@@ -26,7 +26,7 @@ class TestChaos:
         client.post("/_admin/chaos", json={"fail_rate": 1.0})
         assert client.get("/health").status_code == 200
         assert client.post("/_admin/chaos", json={}).json()["fail_rate"] == 0.0
-        assert client.get("/accounts/ACC-1001").status_code == 200
+        assert client.get("/boaccount/API/account/ACC-1001").status_code == 200
 
     def test_admin_input_is_bounded(self, client):
         assert client.post("/_admin/chaos", json={"fail_rate": 2}).status_code == 422

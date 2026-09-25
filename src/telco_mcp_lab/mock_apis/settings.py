@@ -1,6 +1,6 @@
 """Configuration for the mock backend, read from environment variables / `.env`.
 
-Nothing secret is hard-coded: `MOCK_API_KEY` has no default, so the app refuses
+Nothing secret is hard-coded: `MOCK_GATEWAY_TOKEN` has no default, so the app refuses
 to start without it. Spring equivalent: a `@ConfigurationProperties` class bound
 from `application.yml` + environment variables.
 """
@@ -16,8 +16,10 @@ class MockApiSettings(BaseSettings):
         env_prefix="MOCK_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
-    # Service-to-service credential the MCP server uses to call the backend.
-    api_key: SecretStr = Field(min_length=16)
+    # The bearer token the mock gateway accepts. It stands in for the service
+    # token your real gateway would validate (Option A: the MCP server's own
+    # identity, never the end user's token passed through).
+    gateway_token: SecretStr = Field(min_length=16)
 
     host: str = "127.0.0.1"
     port: int = 8081

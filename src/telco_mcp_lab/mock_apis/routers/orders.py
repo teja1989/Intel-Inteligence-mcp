@@ -14,10 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from telco_mcp_lab.mock_apis import data, ids
 from telco_mcp_lab.mock_apis.deps import PageDep, StoreDep
 from telco_mcp_lab.mock_apis.problems import ApiProblem
-from telco_mcp_lab.mock_apis.routers.accounts import AccountIdPath, load_account
+from telco_mcp_lab.mock_apis.routers.accounts import AccountIdQuery, load_account
 from telco_mcp_lab.mock_apis.routers.subscriptions import load_subscription
 
-router = APIRouter(tags=["Order API"])
+router = APIRouter(prefix="/order", tags=["Order API"])
 
 
 class OrderAction(StrEnum):
@@ -35,14 +35,14 @@ class DraftRequest(BaseModel):
     target_code: str = Field(pattern=r"^(PLAN|ADDON)-[A-Z0-9-]{1,20}$")
 
 
-@router.get("/accounts/{account_id}/orders")
-def list_orders(account_id: AccountIdPath, page: PageDep, store: StoreDep) -> dict:
+@router.get("")
+def list_orders(account_id: AccountIdQuery, page: PageDep, store: StoreDep) -> dict:
     load_account(account_id)
     items, has_more = store.list_orders(account_id, page.offset, page.limit)
     return {"items": items, "next_cursor": page.next_cursor(has_more)}
 
 
-@router.get("/orders/{order_id}")
+@router.get("/{order_id}")
 def get_order(order_id: Annotated[str, Path(pattern=ids.ORDER_ID)], store: StoreDep) -> dict:
     order = store.get_order(order_id)
     if order is None:
@@ -50,7 +50,7 @@ def get_order(order_id: Annotated[str, Path(pattern=ids.ORDER_ID)], store: Store
     return order
 
 
-@router.post("/orders/drafts", status_code=status.HTTP_201_CREATED)
+@router.post("/draft", status_code=status.HTTP_201_CREATED)
 def create_draft(req: DraftRequest, store: StoreDep) -> dict:
     load_account(req.account_id)
     sub = load_subscription(req.subscription_id)
@@ -70,7 +70,7 @@ def create_draft(req: DraftRequest, store: StoreDep) -> dict:
     return store.create_draft(sub, req.action.value, req.target_code)
 
 
-@router.get("/orders/drafts/{draft_id}")
+@router.get("/draft/{draft_id}")
 def get_draft(draft_id: Annotated[str, Path(pattern=ids.DRAFT_ID)], store: StoreDep) -> dict:
     draft = store.get_draft(draft_id)
     if draft is None:
