@@ -1,0 +1,13 @@
+{
+  "_comment": "Non-secret access model for the lab. Tokens live ONLY in .env as MCP_TOKEN_<CALLER> (see .env.example). In production this comes from your IdP: tenant and scopes are claims in a signed JWT.",
+  "tenants": {
+    "tenant-a": {"accounts": ["ACC-1001", "ACC-1002"]},
+    "tenant-b": {"accounts": ["ACC-2001"]}
+  },
+  "callers": {
+    "alice":   {"tenant": "tenant-a", "scopes": ["read"],                             "description": "Consumer self-service app for tenant A, read only"},
+    "bob":     {"tenant": "tenant-b", "scopes": ["read"],                             "description": "Business portal for tenant B, read only"},
+    "carol":   {"tenant": "tenant-a", "scopes": ["read", "order:submit", "pii:read"], "description": "Care agent for tenant A: may submit orders and see unmasked PII"},
+    "mallory": {"tenant": "tenant-a", "scopes": [],                                   "description": "Authenticated but granted no scopes: must see no tools"}
+  }
+}

@@ -14,9 +14,8 @@ import pytest
 import respx
 from mcp import Client
 
-from telco_mcp_lab.mcp_server.server import build_server
 from telco_mcp_lab.mock_apis.data import INJECTED_NOTE
-from tests.conftest import GATEWAY_URL, TEST_TOKEN, make_telco
+from tests.conftest import GATEWAY_URL, TEST_TOKEN, make_telco, server_as
 
 ACCOUNT_URL = f"{GATEWAY_URL}/boaccount/API/account/ACC-1001"
 SUBS_URL = f"{GATEWAY_URL}/bosubscription/API/subscription"
@@ -52,20 +51,22 @@ def text_of(result) -> str:
 
 @pytest.fixture
 def respx_server():
-    return build_server(lambda: make_telco(read_timeout_s=0.5))
+    # Acting as alice (tenant-a: ACC-1001, ACC-1002; scope read).
+    return server_as("alice", lambda: make_telco(read_timeout_s=0.5))
 
 
 # ---------------------------------------------------------------------- contract (tools/list)
 class TestContract:
     async def test_tool_definition(self, respx_server):
         async with Client(respx_server) as c:
-            (tool,) = (await c.list_tools()).tools
-        assert tool.name == "get_account_summary"
+            tools = {t.name: t for t in (await c.list_tools()).tools}
+        tool = tools["get_account_summary"]
         assert tool.annotations.read_only_hint is True
         assert tool.annotations.open_world_hint is False
         schema = tool.input_schema
-        assert schema["required"] == ["account_id"]
-        assert schema["properties"]["account_id"]["pattern"] == r"^ACC-\d{4}$"
+        assert "required" not in schema  # account comes from the caller; the arg is a selector
+        patterns = [a.get("pattern") for a in schema["properties"]["account_id"]["anyOf"]]
+        assert r"^ACC-\d{4}$" in patterns
         assert tool.output_schema["required"]  # structured output is declared
         # LLM-oriented description: when to use AND when not to.
         assert "Use this when" in tool.description and "Do NOT use" in tool.description
@@ -93,10 +94,15 @@ class TestSummary:
             "account_id": "ACC-1001",
             "account_type": "CONSUMER",
             "status": "ACTIVE",
-            "holder_name": "Alex Example",
+            "holder_name": "A*** E******",  # masked: alice lacks pii:read
             "customer_since": "2021-03-14",
             "subscriptions": {"active": 2, "suspended": 1, "terminated": 0, "total": 3},
             "active_plans": ["Standard 50GB"],
+            "notes": {
+                "text": None,
+                "withheld": True,
+                "reason": r.structured_content["notes"]["reason"],
+            },
         }
         # The gateway saw our service token and the account filter.
         req = subs.calls.last.request
@@ -198,9 +204,10 @@ class TestErrors:
 
 # ------------------------------------------------------- integration (real mock app, in-process)
 class TestAgainstMockGateway:
-    async def test_real_mock_data(self, mcp_server_on_mock):
-        async with Client(mcp_server_on_mock) as c:
-            r = await c.call_tool("get_account_summary", {"account_id": "ACC-2001"})
+    async def test_real_mock_data(self, mock_telco_factory):
+        # bob (tenant-b) has exactly one account, so account_id can be omitted.
+        async with Client(server_as("bob", mock_telco_factory)) as c:
+            r = await c.call_tool("get_account_summary", {})
         assert r.structured_content["subscriptions"] == {
             "active": 4,
             "suspended": 1,

@@ -17,7 +17,7 @@ TRACED_CMD := $(UV) run --quiet python scripts/stdio_trace.py $(SERVER_CMD)
 ACCOUNT    ?= ACC-1001
 
 ##@ Setup
-.PHONY: help setup env
+.PHONY: help setup env env-tokens
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*##"; printf "\nUsage: make <target>\n"} \
 	  /^##@/{printf "\n\033[1m%s\033[0m\n", substr($$0,5)} \
@@ -26,12 +26,24 @@ help: ## Show this help
 setup: ## Install Python 3.12 + pinned dependencies (uv.lock) into .venv
 	$(UV) sync --locked
 
-env: ## Create .env from .env.example with a freshly generated gateway token (won't overwrite)
-	@if [ -f .env ]; then echo ".env already exists; leaving it alone."; else \
-	  tok=$$($(RUN) python -c 'import secrets; print(secrets.token_urlsafe(32))'); \
+env: ## Create .env from .env.example with fresh random tokens (won't overwrite an existing .env)
+	@if [ -f .env ]; then echo ".env already exists; leaving it alone (see env-tokens)."; else \
+	  gen() { $(RUN) python -c 'import secrets; print(secrets.token_urlsafe(32))'; }; \
+	  tok=$$(gen); \
 	  sed -e "s|^MOCK_GATEWAY_TOKEN=.*|MOCK_GATEWAY_TOKEN=$$tok|" \
-	      -e "s|^GATEWAY_TOKEN=.*|GATEWAY_TOKEN=$$tok|" .env.example > .env; \
-	  chmod 600 .env; echo "Created .env (mode 600) with a random gateway token."; fi
+	      -e "s|^GATEWAY_TOKEN=.*|GATEWAY_TOKEN=$$tok|" \
+	      -e "s|^MCP_TOKEN_ALICE=.*|MCP_TOKEN_ALICE=$$(gen)|" \
+	      -e "s|^MCP_TOKEN_BOB=.*|MCP_TOKEN_BOB=$$(gen)|" \
+	      -e "s|^MCP_TOKEN_CAROL=.*|MCP_TOKEN_CAROL=$$(gen)|" \
+	      -e "s|^MCP_TOKEN_MALLORY=.*|MCP_TOKEN_MALLORY=$$(gen)|" .env.example > .env; \
+	  chmod 600 .env; echo "Created .env (mode 600) with random gateway + caller tokens."; fi
+
+env-tokens: ## Add missing MCP caller tokens to an EXISTING .env (from Phase 1/2)
+	@for c in ALICE BOB CAROL MALLORY; do \
+	  if ! grep -q "^MCP_TOKEN_$$c=." .env; then \
+	    sed -i.bak "/^MCP_TOKEN_$$c=/d" .env; \
+	    echo "MCP_TOKEN_$$c=$$($(RUN) python -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env; \
+	    echo "added MCP_TOKEN_$$c"; fi; done; rm -f .env.bak
 
 ##@ Run (each in its own terminal)
 .PHONY: mocks
@@ -55,12 +67,34 @@ inspector: ## MCP Inspector web UI on 127.0.0.1:6274, launching our server throu
 inspector-cli-list: ## Inspector CLI: tools/list over stdio (ERA=legacy|auto|modern, default legacy)
 	$(INSPECTOR) --cli $(TRACED_CMD) -- --method tools/list --protocol-era $${ERA:-legacy}
 
-inspector-cli-call: ## Inspector CLI: call get_account_summary (ACCOUNT=ACC-2001 to change)
+inspector-cli-call: ## Inspector CLI: call get_account_summary as the stdio caller (ACCOUNT=ACC-1002 / ACC-2001=refused)
 	$(INSPECTOR) --cli $(TRACED_CMD) -- --method tools/call --tool-name get_account_summary \
 	  --tool-arg account_id=$(ACCOUNT) --protocol-era $${ERA:-legacy}
 
 traces: ## List captured JSON-RPC wire traces (.data/traces, gitignored, contains payloads)
 	@ls -1t .data/traces/*.jsonl 2>/dev/null | head -20 || echo "No traces yet."
+
+##@ MCP server over stateless Streamable HTTP (Phase 3; mock gateway must be running)
+.PHONY: mcp-http mcp-cluster demo-http demo-injection inspector-http
+mcp-http: ## Run the MCP server on http://127.0.0.1:8090/mcp (stateless, bearer auth)
+	$(RUN) python -m telco_mcp_lab.mcp_server --transport http
+
+mcp-cluster: ## 2 replicas (:8091, :8092) behind a round-robin LB on :8099 (Ctrl-C stops all)
+	@trap 'kill 0' INT TERM EXIT; \
+	$(RUN) python -m telco_mcp_lab.mcp_server --transport http --port 8091 $${LEGACY:+--legacy-sessions} & \
+	$(RUN) python -m telco_mcp_lab.mcp_server --transport http --port 8092 $${LEGACY:+--legacy-sessions} & \
+	$(RUN) python -m telco_mcp_lab.devtools.round_robin_lb --port 8099 \
+	  --backend http://127.0.0.1:8091 --backend http://127.0.0.1:8092 & \
+	echo "cluster: http://127.0.0.1:8099/mcp  (LEGACY=1 to see sticky-session failure)"; wait
+
+demo-http: ## Walk through callers, scopes, tenant guard, masking over HTTP (URL=… for the cluster)
+	$(RUN) python scripts/http_demo.py $${URL:+--url $$URL}
+
+demo-injection: ## Before/after: the prompt-injection note as the model would see it
+	$(RUN) python scripts/injection_demo.py
+
+inspector-http: ## Inspector web UI; connect to http://127.0.0.1:8090/mcp with header Authorization: Bearer $$MCP_TOKEN_ALICE
+	$(INSPECTOR)
 
 ##@ Chaos switch (mock backend must be running)
 .PHONY: chaos-slow chaos-fail chaos-off chaos-status
@@ -90,10 +124,10 @@ test-mocks: ## Run only the mock-gateway tests
 test-client: ## Run only the MCP server tests (gateway client, tools, stdio protocol)
 	$(RUN) pytest tests/mcp_server
 
-test-protocol: ## Run only end-to-end protocol tests (real stdio subprocesses)
+test-protocol: ## Run only end-to-end protocol tests (stdio subprocesses, real HTTP, LB cluster)
 	$(RUN) pytest -m protocol -v
 
-test-security: ## Run only security-marked tests (auth, tenant isolation, injection, synthetic data)
+test-security: ## Run only security-marked tests (auth, tenant matrix, scopes, masking, injection, audit)
 	$(RUN) pytest -m security -v
 
 smoke: ## Real-HTTP walkthrough against the RUNNING mock gateway (start `make mocks` first)

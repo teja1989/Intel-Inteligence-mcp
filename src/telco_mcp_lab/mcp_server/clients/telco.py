@@ -23,6 +23,13 @@ from telco_mcp_lab.mcp_server.clients.gateway import (
     GatewayUrls,
     TokenProvider,
 )
+from telco_mcp_lab.mcp_server.clients.resilience import (
+    RETRYABLE_STATUS,
+    CircuitBreaker,
+    CircuitOpen,
+    RetryPolicy,
+    with_retry,
+)
 
 
 class GatewayError(Exception):
@@ -47,9 +54,13 @@ class TelcoApiClient:
         http: httpx.AsyncClient,
         base_url: str,
         routes: GatewayRoutes,
+        retry: RetryPolicy | None = None,
+        breakers: dict[DomainApi, CircuitBreaker] | None = None,
     ) -> None:
         self._http = http
         self._urls = GatewayUrls(base_url, routes)
+        self._retry = retry or RetryPolicy()
+        self.breakers = breakers or {api: CircuitBreaker(api.value) for api in DomainApi}
 
     @classmethod
     def build(
@@ -58,6 +69,7 @@ class TelcoApiClient:
         routes: GatewayRoutes,
         tokens: TokenProvider,
         transport: httpx.AsyncBaseTransport | None = None,
+        retry: RetryPolicy | None = None,
     ) -> "TelcoApiClient":
         """Create the client with its own pooled `httpx.AsyncClient`.
 
@@ -69,14 +81,14 @@ class TelcoApiClient:
             follow_redirects=False,  # a redirect from the gateway is a misconfiguration
             transport=transport,
         )
-        return cls(http, settings.base_url, routes)
+        return cls(http, settings.base_url, routes, retry=retry)
 
     async def aclose(self) -> None:
         await self._http.aclose()
 
     # ------------------------------------------------------------ domain calls
     async def get_account(self, account_id: str) -> dict[str, Any]:
-        return await self._get(self._urls.url(DomainApi.ACCOUNT, "account", account_id))
+        return await self._get(DomainApi.ACCOUNT, "account", account_id)
 
     async def list_subscriptions(
         self,
@@ -90,7 +102,7 @@ class TelcoApiClient:
             params["status"] = status
         if cursor:
             params["cursor"] = cursor
-        return await self._get(self._urls.url(DomainApi.SUBSCRIPTION, "subscription"), params)
+        return await self._get(DomainApi.SUBSCRIPTION, "subscription", params=params)
 
     async def all_subscriptions(self, account_id: str, max_pages: int = 20) -> list[dict[str, Any]]:
         """Follow cursors to collect every subscription (bounded, never unbounded)."""
@@ -104,14 +116,50 @@ class TelcoApiClient:
                 return items
         raise GatewayUnavailable("Too many subscription pages; refusing to read further.")
 
+    async def get_subscription(self, subscription_id: str) -> dict[str, Any]:
+        return await self._get(DomainApi.SUBSCRIPTION, "subscription", subscription_id)
+
+    async def get_service(self, service_id: str) -> dict[str, Any]:
+        return await self._get(DomainApi.SERVICE, "service", service_id)
+
+    async def get_order(self, order_id: str) -> dict[str, Any]:
+        return await self._get(DomainApi.ORDER, "order", order_id)
+
+    async def list_orders(
+        self, account_id: str, limit: int = 10, cursor: str | None = None
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"account_id": account_id, "limit": limit}
+        if cursor:
+            params["cursor"] = cursor
+        return await self._get(DomainApi.ORDER, "order", params=params)
+
     # ---------------------------------------------------------------- plumbing
-    async def _get(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _get(
+        self, api: DomainApi, resource: str, *ids: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        url = self._urls.url(api, resource, *ids)
+        breaker = self.breakers[api]
         try:
-            resp = await self._http.get(url, params=params)
+            breaker.before_call()
+        except CircuitOpen as exc:
+            raise GatewayUnavailable("circuit open") from exc
+
+        async def attempt() -> httpx.Response:
+            return await self._http.get(url, params=params)
+
+        try:
+            resp = await with_retry(attempt, _retryable_read, self._retry)
         except httpx.TimeoutException as exc:
+            breaker.on_failure()
             raise GatewayUnavailable("timeout") from exc
         except httpx.TransportError as exc:
+            breaker.on_failure()
             raise GatewayUnavailable("connection failed") from exc
+        # 4xx means the backend is healthy and answered; only 5xx counts against it.
+        if resp.status_code >= 500:
+            breaker.on_failure()
+        else:
+            breaker.on_success()
         return self._decode(resp)
 
     @staticmethod
@@ -131,3 +179,11 @@ class TelcoApiClient:
                 body,
             )
         raise GatewayUnavailable("unexpected response shape")
+
+
+def _retryable_read(outcome: BaseException | httpx.Response) -> bool:
+    if isinstance(outcome, httpx.Response):
+        return outcome.status_code in RETRYABLE_STATUS
+    # Connect errors: the request never reached the backend. Read timeouts are
+    # deliberately NOT retried (see resilience.py).
+    return isinstance(outcome, httpx.ConnectError | httpx.ConnectTimeout)

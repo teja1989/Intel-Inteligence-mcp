@@ -3,6 +3,7 @@ import threading
 import time
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
@@ -13,6 +14,7 @@ from pydantic import SecretStr
 from telco_mcp_lab.gateway_routes import GatewayRoutes
 from telco_mcp_lab.mcp_server.clients.gateway import GatewayClientSettings, StaticTokenProvider
 from telco_mcp_lab.mcp_server.clients.telco import TelcoApiClient
+from telco_mcp_lab.mcp_server.security.caller import AccessModel, CallerContext
 from telco_mcp_lab.mcp_server.server import build_server
 from telco_mcp_lab.mock_apis.app import create_app
 from telco_mcp_lab.mock_apis.settings import MockApiSettings
@@ -90,36 +92,66 @@ def make_telco(transport=None, **kw) -> TelcoApiClient:
     )
 
 
+ACCESS_MODEL = AccessModel.load(Path(__file__).parents[1] / "config" / "access.json")
+# Test-only bearer tokens for the HTTP tests (>= 24 chars, unique).
+CALLER_TOKENS = {c: f"test-token-{c}-0123456789abcdef" for c in ACCESS_MODEL.callers}
+CALLER_ENV = {f"MCP_TOKEN_{c.upper()}": t for c, t in CALLER_TOKENS.items()}
+
+
+def caller(caller_id: str) -> CallerContext:
+    return ACCESS_MODEL.context_for(caller_id, via="in-process")
+
+
+def server_as(caller_id: str, telco_factory, **kw):
+    """In-process server acting as one caller (the stdio-style fallback identity)."""
+    return build_server(
+        telco_factory, access_model=ACCESS_MODEL, fallback_caller=caller(caller_id), **kw
+    )
+
+
 @pytest.fixture
-def mcp_server_on_mock(app):
-    """MCP server whose gateway calls go straight into the in-process mock app."""
-    return build_server(lambda: make_telco(transport=httpx.ASGITransport(app=app)))
+def mock_telco_factory(app):
+    return lambda: make_telco(transport=httpx.ASGITransport(app=app))
+
+
+@pytest.fixture
+def mcp_server_on_mock(mock_telco_factory):
+    """MCP server (as alice, tenant-a) whose gateway calls go into the in-process mock app."""
+    return server_as("alice", mock_telco_factory)
+
+
+class LiveServer:
+    """Serve an ASGI app on a real 127.0.0.1 port in a background thread."""
+
+    def __init__(self, app) -> None:
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            self.port = sock.getsockname()[1]
+        self.url = f"http://127.0.0.1:{self.port}"
+        self._server = uvicorn.Server(
+            uvicorn.Config(app, host="127.0.0.1", port=self.port, log_level="warning")
+        )
+        self._thread = threading.Thread(target=self._server.run, daemon=True)
+
+    def __enter__(self) -> "LiveServer":
+        self._thread.start()
+        deadline = time.monotonic() + 10
+        while not self._server.started:
+            if time.monotonic() > deadline:
+                raise RuntimeError("server did not start")
+            time.sleep(0.05)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self._server.should_exit = True
+        self._thread.join(timeout=5)
 
 
 @pytest.fixture
 def live_gateway(tmp_path) -> Iterator[str]:
-    """The mock gateway on a real TCP port, for subprocess (stdio) tests."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
+    """The mock gateway on a real TCP port, for subprocess (stdio) and HTTP tests."""
     mock_settings = MockApiSettings(
         _env_file=None, gateway_token=SecretStr(TEST_TOKEN), db_path=tmp_path / "live.sqlite3"
     )
-    server = uvicorn.Server(
-        uvicorn.Config(
-            create_app(mock_settings, GatewayRoutes(_env_file=None)),
-            host="127.0.0.1",
-            port=port,
-            log_level="warning",
-        )
-    )
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 10
-    while not server.started:
-        if time.monotonic() > deadline:
-            raise RuntimeError("mock gateway did not start")
-        time.sleep(0.05)
-    yield f"http://127.0.0.1:{port}"
-    server.should_exit = True
-    thread.join(timeout=5)
+    with LiveServer(create_app(mock_settings, GatewayRoutes(_env_file=None))) as srv:
+        yield srv.url

@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 from mcp import Client
@@ -21,10 +22,25 @@ pytestmark = pytest.mark.protocol
 SERVER = ["-m", "telco_mcp_lab.mcp_server", "--log-level", "WARNING"]
 
 
-def server_env(gateway_url: str) -> dict[str, str]:
+ACCESS_CONFIG = str(Path(__file__).parents[2] / "config" / "access.json")
+READ_TOOLS = [
+    "get_account_summary",
+    "list_subscriptions",
+    "get_service_details",
+    "get_order_status",
+    "list_orders",
+]
+
+
+def server_env(gateway_url: str, caller: str = "alice") -> dict[str, str]:
     # Real env vars beat .env in pydantic-settings, so a developer's .env
-    # can't point the test server at the wrong gateway.
-    return {"GATEWAY_BASE_URL": gateway_url, "GATEWAY_TOKEN": TEST_TOKEN}
+    # can't point the test server at the wrong gateway or identity.
+    return {
+        "GATEWAY_BASE_URL": gateway_url,
+        "GATEWAY_TOKEN": TEST_TOKEN,
+        "MCP_STDIO_CALLER": caller,
+        "MCP_ACCESS_CONFIG": ACCESS_CONFIG,
+    }
 
 
 @pytest.mark.parametrize(
@@ -37,7 +53,7 @@ async def test_list_and_call_over_stdio(live_gateway, mode, expected_version):
     async with Client(params, mode=mode) as c:
         assert c.session.protocol_version == expected_version
         tools = await c.list_tools()
-        assert [t.name for t in tools.tools] == ["get_account_summary"]
+        assert [t.name for t in tools.tools] == READ_TOOLS  # deterministic order (spec SHOULD)
         r = await c.call_tool("get_account_summary", {"account_id": "ACC-1001"})
     assert not r.is_error
     assert r.structured_content["subscriptions"]["total"] == 3
@@ -120,3 +136,16 @@ def test_sdk_diverts_stray_prints_away_from_the_protocol_stream():
     assert reply["result"]["structuredContent"] == {"result": "ok"}
     assert b"STRAY-PRINT" not in proc.stdout.read()
     assert b"STRAY-PRINT-FROM-TOOL" in proc.stderr.read()
+
+
+@pytest.mark.security
+async def test_stdio_runs_as_the_configured_caller(live_gateway):
+    """No headers on stdio: identity is MCP_STDIO_CALLER, and the tenant guard still applies."""
+    params = StdioServerParameters(
+        command=sys.executable, args=SERVER, env=server_env(live_gateway, caller="bob")
+    )
+    async with Client(params) as c:
+        own = await c.call_tool("get_account_summary", {})
+        foreign = await c.call_tool("get_account_summary", {"account_id": "ACC-1001"})
+    assert own.structured_content["account_id"] == "ACC-2001"
+    assert foreign.is_error

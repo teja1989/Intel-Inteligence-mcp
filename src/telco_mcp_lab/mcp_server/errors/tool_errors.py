@@ -19,19 +19,20 @@ import re
 from mcp.server.mcpserver.exceptions import ToolError
 
 from telco_mcp_lab.mcp_server.clients.telco import GatewayError, GatewayUnavailable
+from telco_mcp_lab.mcp_server.security.guard import not_found
 
 log = logging.getLogger(__name__)
 
 _SAFE_TOKEN = re.compile(r"^[A-Z0-9-]{1,40}$")
 
+# Same wording as the tenant guard's refusals (security/guard.py): "doesn't
+# exist" and "belongs to another tenant" must be indistinguishable.
 _NOT_FOUND_HINTS = {
-    "ACCOUNT_NOT_FOUND": "No account exists with that ID. Account IDs look like ACC-1001. "
-    "Do not guess IDs: ask the user to confirm their account ID.",
-    "SUBSCRIPTION_NOT_FOUND": "No subscription exists with that ID on this account. "
-    "Subscription IDs look like SUB-1001-01.",
-    "SERVICE_NOT_FOUND": "No service exists with that ID. Service IDs look like SVC-1001-01.",
-    "ORDER_NOT_FOUND": "No order exists with that ID. Order IDs look like ORD-000123.",
-    "DRAFT_NOT_FOUND": "No draft exists with that ID. Create a new draft first.",
+    "ACCOUNT_NOT_FOUND": not_found("account", "ACC-1001"),
+    "SUBSCRIPTION_NOT_FOUND": not_found("subscription", "SUB-1001-01"),
+    "SERVICE_NOT_FOUND": not_found("service", "SVC-1001-01"),
+    "ORDER_NOT_FOUND": not_found("order", "ORD-000123"),
+    "DRAFT_NOT_FOUND": not_found("draft", "DRF-…"),
 }
 
 

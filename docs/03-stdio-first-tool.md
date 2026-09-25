@@ -11,7 +11,7 @@ make mocks                 # terminal 1: mock gateway
 make demo-stdio            # terminal 2: Python client, 2026-07-28, prints the wire
 make demo-stdio-legacy     # same with the pre-2026 initialize handshake
 make inspector             # Inspector web UI (browser) → Connect
-make inspector-cli-call ACCOUNT=ACC-2001 ERA=auto   # headless Inspector
+make inspector-cli-call ACCOUNT=ACC-1002 ERA=auto   # headless Inspector (ACC-2001 → refused since Phase 3)
 ```
 
 ## 1. What runs where
@@ -255,7 +255,11 @@ Things we observed about Inspector 2.8.0:
   `--`, then Inspector options** (read from its parser source, since v2 ships
   no CLI docs).
 
-## 7. ⚠️ Known gap in this phase (fixed in Phase 3)
+## 7. ⚠️ Known gap in this phase (✅ closed in Phase 3, see docs/04)
+
+> **Update (Phase 3):** stdio now runs as the configured `MCP_STDIO_CALLER`
+> (default alice, tenant-a), and the tenant guard applies to every tool.
+> `ACC-2001` is refused over stdio too (tested). The tool list is now 5 read tools.
 
 Nothing restricts **which** account a caller may read: `ACC-2001` (tenant B) is
 as reachable as `ACC-1001`. Over stdio there's no caller identity at all, just
