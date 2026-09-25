@@ -171,6 +171,9 @@ Grows each phase. Full version and verification notes are in
 * [docs/03-stdio-first-tool.md](docs/03-stdio-first-tool.md): tool anatomy,
   stdio rules, captured JSON-RPC wire walkthrough (modern vs legacy), error
   channels, MCP Inspector how-to, known gaps.
+* [docs/90-backlog-external-validation.md](docs/90-backlog-external-validation.md):
+  **parked** plan for validating against the official conformance suite,
+  reference servers and other implementations (findings as of 2026-09-25).
 * [docs/02-mock-backend.md](docs/02-mock-backend.md): gateway conventions and
   auth, APIs, synthetic data, Problem Details, draft → submit, idempotency
   guarantees, chaos switch.
