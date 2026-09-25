@@ -19,6 +19,7 @@ concept transfers to Java.
 | 3 | Stateless **Streamable HTTP**, read tools, CallerContext, tenant guard, masking, resilience, audit | ✅ done |
 | 4 | Order flow (preview → answers → submit), separate scopes, idempotency via MCP | ⏸ parked: awaiting real preview/submit API contracts ([docs/91](docs/91-backlog-orders-preview-submit.md)) |
 | 5 | Azure OpenAI harness with step-by-step tool-call trace | ✅ done (offline-tested; run `make harness-check` on your machine) |
+| 5b | Prompt layers (routing / server instructions / agent prompt) and host guardrails | ✅ done ([docs/05b](docs/05b-prompts-and-guardrails.md)) |
 | 6 | Evaluation suite + description-rewording experiment | |
 | 7 | Wrap-up: Spring AI mapping, pitfalls, production checklist | |
 
@@ -139,9 +140,12 @@ src/telco_mcp_lab/
     errors/tool_errors.py  failures → actionable, non-leaky tool errors
     tools/              account · lines (subscriptions, service details) · orders
   harness/              Phase 5: the MCP HOST: settings · llm (Azure adapter) · bridge
-                        (MCP ⇄ function calling) · agent (loop + guards) · trace · CLI
+                        (MCP ⇄ function calling) · agent (loop + guards) · prompts ·
+                        guardrails · trace · CLI
   devtools/round_robin_lb.py  gorouter stand-in for the scaling demo
 config/access.json      tenants → accounts, callers → tenant + scopes (non-secret)
+config/guardrails.json  host guardrails: input redact/block/warn, grounded-identifier output rule
+prompts/agent.system.md the host's (agent's) system prompt: versioned, eval-gated
 tests/                  pytest; markers: security, slow
 scripts/smoke_mocks.py  real-HTTP smoke test of the mock gateway
 scripts/stdio_trace.py  transparent stdio proxy that logs every JSON-RPC message
@@ -172,6 +176,9 @@ Grows each phase. Full version and verification notes are in
 | Host: MCP tools → LLM functions | `harness/bridge.py` | `SyncMcpToolCallbackProvider` → `ToolCallback` |
 | Host: tool-calling loop | `harness/agent.py` (by hand, traced) | `ChatClient` internal tool execution / `ToolCallingManager` |
 | LLM client | `openai.AsyncOpenAI(base_url=…/openai/v1/)` | `AzureOpenAiChatModel` / `OpenAiChatModel` |
+| Agent system prompt | `prompts/agent.system.md` | `ChatClient.defaultSystem(Resource)` |
+| Server instructions | `MCPServer(instructions=…)` | `spring.ai.mcp.server.instructions` |
+| Host guardrails | `harness/guardrails.py` + `config/guardrails.json` | custom `CallAdvisor`s (`SafeGuardAdvisor` = word blocklist only) |
 | Stateless HTTP | 2026-07-28 automatic; `stateless_http=True` for legacy clients | `spring.ai.mcp.server.protocol=STATELESS` (**2025-era protocol; see primer §6**) |
 | Downstream error format | RFC 9457 Problem Details | `ProblemDetail` / `@RestControllerAdvice` |
 | Config & secrets | `pydantic-settings` + `.env` | `@ConfigurationProperties` + env / CF user-provided service |
@@ -220,6 +227,9 @@ Grows each phase. Full version and verification notes are in
 * [docs/05-llm-harness.md](docs/05-llm-harness.md): the host loop, real
   step trace, host guards and y/N confirmation, data boundary to Azure, v1
   endpoint + corporate proxy config, `harness-check` diagnostics.
+* [docs/05b-prompts-and-guardrails.md](docs/05b-prompts-and-guardrails.md):
+  where routing (tool descriptions), server instructions, the agent prompt and
+  guardrails each live; who owns them; what's enforced where; Spring AI mapping.
 * [docs/91-backlog-orders-preview-submit.md](docs/91-backlog-orders-preview-submit.md):
   **parked** Phase 4 design: separate `order:preview` / `order:submit` scopes,
   multi-step preview via server-minted handle (recommended) vs MRTR elicitation.

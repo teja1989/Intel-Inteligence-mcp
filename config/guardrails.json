@@ -1,0 +1,25 @@
+{
+  "_comment": "Host guardrails (layer E, host side). Enforced in code by harness/guardrails.py. The MCP server's own controls are separate and authoritative.",
+  "input": {
+    "max_chars": 2000,
+    "rules": [
+      {"name": "imsi",   "regex": "\\b\\d{15}\\b",               "action": "redact", "replacement": "[IMSI removed]",
+       "why": "Subscriber identities must not be sent to the LLM provider; no tool needs them."},
+      {"name": "iccid",  "regex": "\\b89\\d{17,18}\\b",           "action": "redact", "replacement": "[ICCID removed]",
+       "why": "SIM serials are not needed by any tool."},
+      {"name": "card_number", "regex": "\\b(?:\\d[ -]?){13,19}\\b", "action": "block",
+       "message": "For your security, please don't share card numbers here. I've not sent your message.",
+       "why": "Payment card data must never reach the model (PCI scope)."},
+      {"name": "instruction_like", "regex": "(?i)\\bignore\\b.{0,40}\\b(instruction|prompt|rule)s?\\b|\\bsystem\\s+prompt\\b|\\byou\\s+are\\s+now\\b",
+       "action": "warn",
+       "why": "Direct injection by the signed-in user only affects their own session; the server enforces access anyway. Logged for review."}
+    ]
+  },
+  "output": {
+    "grounded_identifiers": [
+      {"name": "msisdn", "regex": "\\+?44\\s?7\\d{3}\\s?\\d{6}\\b", "replacement": "[phone number removed]"},
+      {"name": "imsi",   "regex": "\\b\\d{15}\\b",                 "replacement": "[IMSI removed]"}
+    ],
+    "_grounded_identifiers": "An identifier may appear in the final answer ONLY if a tool returned it verbatim in this turn. The server decides who sees full numbers (pii:read); anything else (hallucinated, echoed from elsewhere) is redacted."
+  }
+}

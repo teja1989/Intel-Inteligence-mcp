@@ -55,13 +55,27 @@ class Tracer:
         self._p("dim", f"[host] {len(tools)} MCP tools offered to the model: "
                        f"{[t.name for t in tools]}")  # fmt: skip
 
+    def system_prompt(self, text: str, has_server_instructions: bool) -> None:
+        self._event("system_prompt", chars=len(text), server_instructions=has_server_instructions)
+        extra = " + server instructions" if has_server_instructions else ""
+        self._p("dim", f"[host] system prompt: {len(text)} chars (host prompt{extra})")
+
+    def guardrail(self, stage: str, events: list[dict[str, Any]]) -> None:
+        """Rule names, actions and counts only; never the matched values."""
+        for ev in events:
+            self._event("guardrail", stage=stage, **ev)
+            self._p("err", f"   🛡  {stage} guardrail {ev['rule']!r}: {ev['action']} ×{ev['count']}")
+
     def user(self, prompt: str) -> None:
         self._event("user", prompt=prompt)
         self._p("user", f"\n👤 USER: {prompt}")
 
     def llm_turn(self, step: int, turn: AssistantTurn, seconds: float) -> None:
         calls = [{"name": c.name, "arguments": c.arguments} for c in turn.tool_calls]
-        self._event("llm", step=step, content=turn.content, tool_calls=calls, usage=turn.usage)
+        # A final-text turn is recorded by final(), AFTER the output guardrail,
+        # so text the guardrail removes never lands in the trace file.
+        content = turn.content if calls else None
+        self._event("llm", step=step, content=content, tool_calls=calls, usage=turn.usage)
         tokens = f", tokens {turn.usage}" if turn.usage else ""
         what = f"{len(calls)} tool call(s)" if calls else "final text"
         self._p("llm", f"🧠 LLM step {step} ({seconds:.1f}s{tokens}): decided → {what}")

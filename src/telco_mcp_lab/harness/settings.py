@@ -72,3 +72,9 @@ class HarnessSettings(BaseSettings):
     max_steps: int = Field(default=8, ge=1, le=30)
     confirm_destructive: bool = True
     trace_dir: Path = Path(".data/harness")
+    # Layer C: the host's own system prompt (versioned file, eval-gated).
+    system_prompt_file: Path = Path("prompts/agent.system.md")
+    # Layer B: add the MCP server's `instructions` below the host prompt.
+    use_server_instructions: bool = True
+    # Layer E (host side): input/output guardrails.
+    guardrails_file: Path = Path("config/guardrails.json")

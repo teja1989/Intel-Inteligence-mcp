@@ -224,7 +224,16 @@ class TestTrace:
         await run(server_as("alice", mock_telco_factory), model, tracer, prompt="my orders?")
         tracer.close()
         kinds = [json.loads(line)["kind"] for line in jsonl.read_text().splitlines()]
-        assert kinds == ["tools", "user", "llm", "tool_call", "tool_result", "llm", "final"]
+        assert kinds == [
+            "tools",
+            "system_prompt",
+            "user",
+            "llm",
+            "tool_call",
+            "tool_result",
+            "llm",
+            "final",
+        ]
         printed = tracer.out.getvalue()
         for marker in ("USER: my orders?", "tools/call list_orders", "ANSWER: two orders"):
             assert marker in printed

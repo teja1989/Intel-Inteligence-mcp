@@ -24,7 +24,9 @@ from mcp.client.streamable_http import streamable_http_client
 from pydantic import ValidationError
 
 from telco_mcp_lab.harness.agent import Agent, deny_all
+from telco_mcp_lab.harness.guardrails import Guardrails
 from telco_mcp_lab.harness.llm import AzureChatModel
+from telco_mcp_lab.harness.prompts import load_system_prompt
 from telco_mcp_lab.harness.settings import AzureOpenAISettings, HarnessSettings
 from telco_mcp_lab.harness.trace import Tracer
 
@@ -97,6 +99,18 @@ async def check(hs: HarnessSettings) -> int:
     finally:
         await http.aclose()
 
+    print("      prompts/guardrails …")
+    try:
+        prompt = load_system_prompt(hs.system_prompt_file)
+        rails = Guardrails.load(hs.guardrails_file)
+        print(f"      ✅ system prompt {hs.system_prompt_file} ({len(prompt)} chars), server "
+              f"instructions {'on' if hs.use_server_instructions else 'off'}, guardrails "
+              f"{hs.guardrails_file} ({len(rails.input_rules)} input / "
+              f"{len(rails.output_rules)} output rules)")  # fmt: skip
+    except (ValueError, OSError) as exc:
+        ok = False
+        print(f"      ❌ {exc}")
+
     print("[2/3] Azure OpenAI settings …")
     try:
         az = AzureOpenAISettings()  # type: ignore[call-arg]
@@ -133,6 +147,9 @@ async def chat(hs: HarnessSettings, prompt: str | None) -> int:
             agent = Agent(
                 llm, mcp, tracer, max_steps=hs.max_steps,
                 confirm=ask_human if hs.confirm_destructive else deny_all,
+                system_prompt=load_system_prompt(hs.system_prompt_file),
+                use_server_instructions=hs.use_server_instructions,
+                guardrails=Guardrails.load(hs.guardrails_file),
             )  # fmt: skip
             await agent.load_tools()
             if prompt:
