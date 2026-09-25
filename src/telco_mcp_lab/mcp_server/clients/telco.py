@@ -80,6 +80,9 @@ class TelcoApiClient:
             timeout=httpx.Timeout(settings.read_timeout_s, connect=settings.connect_timeout_s),
             follow_redirects=False,  # a redirect from the gateway is a misconfiguration
             transport=transport,
+            # Corporate laptops often set HTTP(S)_PROXY. The lab gateway is on
+            # localhost and must never be sent through a corporate proxy.
+            trust_env=settings.allow_non_local,
         )
         return cls(http, settings.base_url, routes, retry=retry)
 

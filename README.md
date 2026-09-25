@@ -18,7 +18,7 @@ concept transfers to Java.
 | 2 | First tool over **stdio**, MCP Inspector, JSON-RPC walkthrough | ✅ done |
 | 3 | Stateless **Streamable HTTP**, read tools, CallerContext, tenant guard, masking, resilience, audit | ✅ done |
 | 4 | Order flow (preview → answers → submit), separate scopes, idempotency via MCP | ⏸ parked: awaiting real preview/submit API contracts ([docs/91](docs/91-backlog-orders-preview-submit.md)) |
-| 5 | Azure OpenAI harness with step-by-step tool-call trace | |
+| 5 | Azure OpenAI harness with step-by-step tool-call trace | ✅ done (offline-tested; run `make harness-check` on your machine) |
 | 6 | Evaluation suite + description-rewording experiment | |
 | 7 | Wrap-up: Spring AI mapping, pitfalls, production checklist | |
 
@@ -45,6 +45,11 @@ make mcp-http            # terminal 2 instead: stateless HTTP on :8090 (bearer a
 make demo-http           # 4 callers: scopes, tenant guard, masking
 make demo-injection      # the injected note, before vs after shaping
 make mcp-cluster         # 2 replicas + round-robin LB on :8099 (LEGACY=1 breaks legacy clients)
+
+# Phase 5: Azure OpenAI as the host (fill AZURE_OPENAI_* in .env; see docs/05)
+make harness-check       # MCP ✅, Azure settings ✅, one tiny completion ✅
+make ask Q="what plans am I on?"      # full step trace; CALLER=bob to switch identity
+make chat                             # multi-turn
 ```
 
 Run `make` for all targets. Current list:
@@ -59,10 +64,11 @@ Run `make` for all targets. Current list:
 | `inspector` / `inspector-cli-list` / `inspector-cli-call` | MCP Inspector 2.8.0, web or headless (`ACCOUNT=`, `ERA=`) |
 | `traces` | List captured JSON-RPC traces (`.data/traces`) |
 | `env-tokens` | Add the Phase 3 caller tokens to an existing `.env` |
+| `harness-check` / `ask` / `chat` | Azure OpenAI harness: connectivity check; one question; interactive (`CALLER=`) |
 | `mcp-http` / `mcp-cluster` | Stateless Streamable HTTP server; 2 replicas + round-robin LB |
 | `demo-http` / `demo-injection` / `inspector-http` | HTTP walkthrough per caller; injection before/after; Inspector UI for HTTP |
 | `chaos-slow` / `chaos-fail` / `chaos-off` / `chaos-status` | Inject 5 s latency / 503s into the backend, or turn it off |
-| `test` / `test-fast` / `test-mocks` / `test-client` / `test-protocol` / `test-security` | Full suite / no slow tests / mock gateway / MCP server / real-transport protocol tests / security-marked |
+| `test` / `test-fast` / `test-mocks` / `test-client` / `test-harness` / `test-protocol` / `test-security` | Full suite / no slow tests / mock gateway / MCP server / harness (offline) / real-transport protocol tests / security-marked |
 | `lint` / `fmt` / `check` | Ruff (incl. `S` security rules) / auto-fix / lint + tests |
 | `reset-data` / `clean` | Wipe backend SQLite data / caches |
 
@@ -132,6 +138,8 @@ src/telco_mcp_lab/
     shaping/            pii (masking) · free_text (injection neutralising)
     errors/tool_errors.py  failures → actionable, non-leaky tool errors
     tools/              account · lines (subscriptions, service details) · orders
+  harness/              Phase 5: the MCP HOST: settings · llm (Azure adapter) · bridge
+                        (MCP ⇄ function calling) · agent (loop + guards) · trace · CLI
   devtools/round_robin_lb.py  gorouter stand-in for the scaling demo
 config/access.json      tenants → accounts, callers → tenant + scopes (non-secret)
 tests/                  pytest; markers: security, slow
@@ -161,6 +169,9 @@ Grows each phase. Full version and verification notes are in
 | Tenant guard | `resolve_account()` / `ensure_owned()` | `PermissionEvaluator` / service-layer ownership check |
 | Retry / breaker | `clients/resilience.py` | Resilience4j `@Retry` / `@CircuitBreaker` / `@TimeLimiter` |
 | Audit | JSON line on `telco_mcp.audit` | `@Around` aspect / Micrometer Observation + SLF4J |
+| Host: MCP tools → LLM functions | `harness/bridge.py` | `SyncMcpToolCallbackProvider` → `ToolCallback` |
+| Host: tool-calling loop | `harness/agent.py` (by hand, traced) | `ChatClient` internal tool execution / `ToolCallingManager` |
+| LLM client | `openai.AsyncOpenAI(base_url=…/openai/v1/)` | `AzureOpenAiChatModel` / `OpenAiChatModel` |
 | Stateless HTTP | 2026-07-28 automatic; `stateless_http=True` for legacy clients | `spring.ai.mcp.server.protocol=STATELESS` (**2025-era protocol; see primer §6**) |
 | Downstream error format | RFC 9457 Problem Details | `ProblemDetail` / `@RestControllerAdvice` |
 | Config & secrets | `pydantic-settings` + `.env` | `@ConfigurationProperties` + env / CF user-provided service |
@@ -190,6 +201,9 @@ Grows each phase. Full version and verification notes are in
    while the 2026-07-28 client is unaffected. That's your Cloud Foundry reality with today's Spring AI.
 7. httpx's in-process `ASGITransport` ignores timeouts, and `httpx` logs full
    URLs (identifiers) at INFO. Both are handled; see docs/04.
+8. `openai` 3.x and `mcp` 2.x both use **`httpx2`**, which honours `HTTPS_PROXY`
+   automatically. Good for Azure, but on a corporate laptop it would also capture
+   *localhost* MCP/gateway calls. Local clients now ignore proxy env vars (tested).
 
 ## Documentation
 
@@ -203,6 +217,9 @@ Grows each phase. Full version and verification notes are in
   stateless HTTP and the 2-replica experiment, CallerContext, scopes, tenant
   guard + security matrix, PII masking, injection before/after, resilience,
   audit.
+* [docs/05-llm-harness.md](docs/05-llm-harness.md): the host loop, real
+  step trace, host guards and y/N confirmation, data boundary to Azure, v1
+  endpoint + corporate proxy config, `harness-check` diagnostics.
 * [docs/91-backlog-orders-preview-submit.md](docs/91-backlog-orders-preview-submit.md):
   **parked** Phase 4 design: separate `order:preview` / `order:submit` scopes,
   multi-step preview via server-minted handle (recommended) vs MRTR elicitation.

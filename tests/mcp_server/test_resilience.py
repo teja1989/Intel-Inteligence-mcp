@@ -130,3 +130,16 @@ class TestTimeoutEndToEnd:
             r = await c.call_tool("get_order_status", {"order_id": "ORD-000123"})
         assert r.is_error
         assert "did not respond in time" in r.content[0].text
+
+
+class TestCorporateProxyIsolation:
+    async def test_local_gateway_calls_ignore_proxy_env(self, live_gateway, monkeypatch):
+        """HTTP(S)_PROXY on a corporate laptop must not capture localhost gateway calls."""
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")  # a dead proxy
+        monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+        monkeypatch.delenv("NO_PROXY", raising=False)
+        monkeypatch.delenv("no_proxy", raising=False)
+        client = make_telco(base_url=live_gateway)
+        order = await client.get_order("ORD-000123")
+        assert order["order_id"] == "ORD-000123"
+        await client.aclose()

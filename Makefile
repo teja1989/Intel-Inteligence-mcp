@@ -96,6 +96,18 @@ demo-injection: ## Before/after: the prompt-injection note as the model would se
 inspector-http: ## Inspector web UI; connect to http://127.0.0.1:8090/mcp with header Authorization: Bearer $$MCP_TOKEN_ALICE
 	$(INSPECTOR)
 
+##@ LLM harness: Azure OpenAI as the MCP host (Phase 5; needs mocks + mcp-http running)
+.PHONY: harness-check ask chat
+harness-check: ## Verify MCP + Azure connectivity (prints actionable hints on failure)
+	$(RUN) python -m telco_mcp_lab.harness --check
+
+ask: ## One question with a full step trace: make ask Q="what plans am I on?" [CALLER=bob]
+	@test -n "$(Q)" || { echo 'usage: make ask Q="your question" [CALLER=alice|bob|carol|mallory]'; exit 2; }
+	$(RUN) python -m telco_mcp_lab.harness $${CALLER:+--caller $$CALLER} "$(Q)"
+
+chat: ## Interactive multi-turn chat with the trace (CALLER=bob to switch identity)
+	$(RUN) python -m telco_mcp_lab.harness $${CALLER:+--caller $$CALLER}
+
 ##@ Chaos switch (mock backend must be running)
 .PHONY: chaos-slow chaos-fail chaos-off chaos-status
 chaos-slow: ## Make every backend call take 5 s (timeout testing)
@@ -111,7 +123,7 @@ chaos-status: ## Show current chaos settings
 	@$(LOAD_ENV); curl -sf "$(MOCK_URL)/_admin/chaos" -H "Authorization: Bearer $$MOCK_GATEWAY_TOKEN"; echo
 
 ##@ Test & quality
-.PHONY: test test-fast test-mocks test-client test-protocol test-security smoke lint fmt check
+.PHONY: test test-fast test-mocks test-client test-harness test-protocol test-security smoke lint fmt check
 test: ## Run the full pytest suite
 	$(RUN) pytest
 
@@ -123,6 +135,9 @@ test-mocks: ## Run only the mock-gateway tests
 
 test-client: ## Run only the MCP server tests (gateway client, tools, stdio protocol)
 	$(RUN) pytest tests/mcp_server
+
+test-harness: ## Run only the harness tests (scripted LLM + mocked Azure; no network)
+	$(RUN) pytest tests/harness
 
 test-protocol: ## Run only end-to-end protocol tests (stdio subprocesses, real HTTP, LB cluster)
 	$(RUN) pytest -m protocol -v
