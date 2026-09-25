@@ -1,4 +1,4 @@
-"""Identifier formats shared by the mock APIs (and, later, the MCP tool schemas).
+"""Identifier formats: the shared contract between the mock APIs and the MCP tool schemas.
 
 Strict patterns are a cheap security control: an ID that can't match can't be
 used for path traversal, SQL/log injection or smuggling instructions to a model.

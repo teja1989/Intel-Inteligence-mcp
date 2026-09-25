@@ -1,6 +1,6 @@
 [project]
 name = "telco-mcp-lab"
-version = "0.1.0"
+version = "0.2.0"
 description = "Learning sandbox: a stateless MCP server over mock telecom APIs (mirrors a Spring AI production design)."
 requires-python = ">=3.12,<3.13"
 # Exact pins on purpose: this is a learning project, and we want everyone to see
@@ -36,6 +36,7 @@ addopts = "-ra --strict-markers"
 markers = [
     "security: tests that assert a security property (tenant isolation, scopes, injection)",
     "slow: tests that deliberately wait (timeouts, delays)",
+    "protocol: end-to-end MCP protocol tests over a real transport (stdio subprocess, HTTP)",
 ]
 
 [tool.ruff]

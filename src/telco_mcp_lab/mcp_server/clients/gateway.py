@@ -40,6 +40,10 @@ class GatewayClientSettings(BaseSettings):
     allow_non_local: bool = False
     base_url: str = "http://127.0.0.1:8081"
     token: SecretStr = Field(min_length=16)
+    # Fail fast: a model turn must not hang on a slow backend. (Phase 3 adds
+    # retries and a circuit breaker on top of these.)
+    connect_timeout_s: float = Field(default=2.0, gt=0, le=30)
+    read_timeout_s: float = Field(default=5.0, gt=0, le=60)
 
     # A *field* validator, not a model validator, on purpose: pydantic puts the
     # validated input into the error message. For a model validator that input

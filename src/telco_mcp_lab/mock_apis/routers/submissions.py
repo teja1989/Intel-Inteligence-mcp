@@ -18,7 +18,7 @@ from typing import Annotated
 from fastapi import APIRouter, Header, Response
 from pydantic import BaseModel, ConfigDict, Field
 
-from telco_mcp_lab.mock_apis import ids
+from telco_mcp_lab import ids
 from telco_mcp_lab.mock_apis.deps import StoreDep
 from telco_mcp_lab.mock_apis.problems import ApiProblem
 from telco_mcp_lab.mock_apis.store import StoreError

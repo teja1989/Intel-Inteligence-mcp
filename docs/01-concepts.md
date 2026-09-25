@@ -278,7 +278,7 @@ There is no router. The flow (Phase 5 makes each step visible):
 |---|---|---|---|
 | Server object | `mcp.server.MCPServer("name")` | Spring Boot starter `spring-ai-starter-mcp-server-webmvc` | Python ✅ docs · Java ✅ docs source |
 | Define a tool | `@mcp.tool()` on a typed function | `@McpTool(name=…, description=…)` + `@McpToolParam` | ✅ both (Spring AI `mcp-annotations-server.adoc`) |
-| Tool annotations | `annotations=ToolAnnotations(readOnlyHint=…)`: exact v2 signature **to verify in Phase 2** | `@McpTool(annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false))` | Java ✅ · Python ⏳ |
+| Tool annotations | `annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False)` (snake_case in Python, camelCase on the wire) | `@McpTool(annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false))` | ✅ both (Python: `mcp` 2.2.0 source + captured wire) |
 | Stateless HTTP | `stateless_http=True` (legacy leg); 2026-07-28 automatic | `spring.ai.mcp.server.protocol=STATELESS` | ✅ both, but see §6 |
 | Error body | RFC 9457 Problem Details (mock backend) | `ProblemDetail` + `@RestControllerAdvice` | ✅ standard |
 | Settings | `pydantic-settings` + `.env` | `@ConfigurationProperties` + env vars / CF user-provided services | — |

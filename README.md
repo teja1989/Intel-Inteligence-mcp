@@ -14,9 +14,9 @@ concept transfers to Java.
 
 | Phase | Content | State |
 |---|---|---|
-| 1 | Concepts primer, project skeleton, mock telecom APIs + tests | ✅ done |
-| 2 | First tool over **stdio**, MCP Inspector, JSON-RPC walkthrough | ⏳ next |
-| 3 | Stateless **Streamable HTTP**, read tools, CallerContext, tenant guard, masking | |
+| 1 | Concepts primer, project skeleton, mock gateway + telecom APIs + tests | ✅ done |
+| 2 | First tool over **stdio**, MCP Inspector, JSON-RPC walkthrough | ✅ done |
+| 3 | Stateless **Streamable HTTP**, read tools, CallerContext, tenant guard, masking | ⏳ next |
 | 4 | `prepare_order` / `submit_order`, idempotency via MCP, concurrency test | |
 | 5 | Azure OpenAI harness with step-by-step tool-call trace | |
 | 6 | Evaluation suite + description-rewording experiment | |
@@ -25,7 +25,7 @@ concept transfers to Java.
 ## Quick start
 
 Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/),
-GNU make, curl. Node 20+ is needed from Phase 2 (MCP Inspector).
+GNU make, curl. **Node ≥ 22.19** for MCP Inspector 2.x (Phase 2+).
 uv downloads Python 3.12 automatically if you don't have it.
 
 ```bash
@@ -37,6 +37,8 @@ make check     # lint + full test suite; should be green before anything else
 make mocks     # mock gateway on http://127.0.0.1:8081  (OpenAPI UI: /docs)
 # terminal 2
 make smoke     # real-HTTP walkthrough: bearer auth, reads, draft, idempotent submit
+make demo-stdio          # MCP client ↔ server over stdio, full JSON-RPC wire printed
+make inspector           # MCP Inspector web UI against our server
 ```
 
 Run `make` for all targets. Current list:
@@ -46,8 +48,12 @@ Run `make` for all targets. Current list:
 | `setup` / `env` | Install deps; create `.env` (mode 600, random key) |
 | `mocks` | Start the mock API gateway (all five microservices) |
 | `smoke` | End-to-end check against the running gateway, via the MCP gateway client |
+| `mcp-stdio` | Run the MCP server on stdio |
+| `demo-stdio` / `demo-stdio-legacy` | Python MCP client over stdio (2026-07-28 / legacy handshake) with wire trace |
+| `inspector` / `inspector-cli-list` / `inspector-cli-call` | MCP Inspector 2.8.0, web or headless (`ACCOUNT=`, `ERA=`) |
+| `traces` | List captured JSON-RPC traces (`.data/traces`) |
 | `chaos-slow` / `chaos-fail` / `chaos-off` / `chaos-status` | Inject 5 s latency / 503s into the backend, or turn it off |
-| `test` / `test-fast` / `test-mocks` / `test-client` / `test-security` | Full suite / no slow tests / mock gateway / MCP gateway client / security-marked only |
+| `test` / `test-fast` / `test-mocks` / `test-client` / `test-protocol` / `test-security` | Full suite / no slow tests / mock gateway / MCP server / real-transport protocol tests / security-marked |
 | `lint` / `fmt` / `check` | Ruff (incl. `S` security rules) / auto-fix / lint + tests |
 | `reset-data` / `clean` | Wipe backend SQLite data / caches |
 
@@ -104,10 +110,19 @@ src/telco_mcp_lab/
     data.py             synthetic tenants, lines, and the prompt-injection note
     problems.py         RFC 9457 Problem Details
     chaos.py            latency/failure injection middleware
-  mcp_server/           Phase 2+: security/ tools/ clients/ shaping/ errors/
+  ids.py                ID formats: the shared contract between mocks and tool schemas
+  mcp_server/           the MCP server (layers: security/ tools/ clients/ shaping/ errors/)
+    __main__.py         entry point (stdio now; HTTP in Phase 3), logs → stderr
+    server.py           composition root: MCPServer, instructions, lifespan, tool registration
+    state.py            process-wide AppState (pooled HTTP client only; no caller state)
     clients/gateway.py  gateway URLs, TokenProvider seam, bearer auth, localhost interlock
+    clients/telco.py    typed async domain client; GatewayError / GatewayUnavailable
+    errors/tool_errors.py  failures → actionable, non-leaky tool errors
+    tools/account.py    get_account_summary
 tests/                  pytest; markers: security, slow
-scripts/smoke_mocks.py  real-HTTP smoke test
+scripts/smoke_mocks.py  real-HTTP smoke test of the mock gateway
+scripts/stdio_trace.py  transparent stdio proxy that logs every JSON-RPC message
+scripts/stdio_demo.py   scripted MCP client over stdio (modern or legacy era)
 docs/                   01-concepts.md (primer), 02-mock-backend.md, … one per phase
 ```
 
@@ -119,7 +134,10 @@ Grows each phase. Full version and verification notes are in
 | Concept | Python (this lab) | Java / Spring AI 2.0 |
 |---|---|---|
 | MCP server | `MCPServer("telco")` | `spring-ai-starter-mcp-server-webmvc` |
-| Tool | `@mcp.tool()` + type hints | `@McpTool` + `@McpToolParam` |
+| Tool | `@mcp.tool(name, title, description, annotations=ToolAnnotations(read_only_hint=True))` | `@McpTool(…, annotations = @McpTool.McpAnnotations(readOnlyHint = true))` + `@McpToolParam` |
+| Structured output | Pydantic return model → `outputSchema` + `structuredContent` | Java record return type |
+| Tool error (model-fixable) | `raise ToolError("…")` → `isError: true` | exception → error result (verify exact mapping in Phase 7) |
+| stdio server | `MCPServer.run(transport="stdio")`, logs to stderr | `spring-ai-starter-mcp-server` + `spring.ai.mcp.server.stdio=true` |
 | Stateless HTTP | 2026-07-28 automatic; `stateless_http=True` for legacy clients | `spring.ai.mcp.server.protocol=STATELESS` (**2025-era protocol; see primer §6**) |
 | Downstream error format | RFC 9457 Problem Details | `ProblemDetail` / `@RestControllerAdvice` |
 | Config & secrets | `pydantic-settings` + `.env` | `@ConfigurationProperties` + env / CF user-provided service |
@@ -139,12 +157,20 @@ Grows each phase. Full version and verification notes are in
 3. The spec explicitly allows `tools/list` to vary **by the authorization on
    the request** (scope-based filtering), and recommends **server-minted
    handles** for cross-call state, which is our `draftId`.
+4. **`mcp` v2 diverts stray `print()` output away from the stdio protocol
+   stream** (fd 1 → stderr). Other stacks, including Spring Boot, don't do this for you.
+5. **MCP Inspector 2.8.0's CLI defaults to the legacy era**; `ERA=auto` makes it
+   use 2026-07-28. The Python SDK returns **unknown tool** as an `isError`
+   result, not a JSON-RPC protocol error.
 
 ## Documentation
 
 * [docs/01-concepts.md](docs/01-concepts.md): host/client/server, primitives,
   JSON-RPC, transports, what 2026-07-28 changed, why stateless matters on CF,
   security model.
+* [docs/03-stdio-first-tool.md](docs/03-stdio-first-tool.md): tool anatomy,
+  stdio rules, captured JSON-RPC wire walkthrough (modern vs legacy), error
+  channels, MCP Inspector how-to, known gaps.
 * [docs/02-mock-backend.md](docs/02-mock-backend.md): gateway conventions and
   auth, APIs, synthetic data, Problem Details, draft → submit, idempotency
   guarantees, chaos switch.

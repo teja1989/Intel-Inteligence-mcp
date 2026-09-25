@@ -4,7 +4,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Path, Query
 
-from telco_mcp_lab.mock_apis import data, ids
+from telco_mcp_lab import ids
+from telco_mcp_lab.mock_apis import data
 from telco_mcp_lab.mock_apis.problems import ApiProblem
 
 router = APIRouter(prefix="/account", tags=["Account API"])
