@@ -17,7 +17,7 @@ concept transfers to Java.
 | 1 | Concepts primer, project skeleton, mock gateway + telecom APIs + tests | ✅ done |
 | 2 | First tool over **stdio**, MCP Inspector, JSON-RPC walkthrough | ✅ done |
 | 3 | Stateless **Streamable HTTP**, read tools, CallerContext, tenant guard, masking, resilience, audit | ✅ done |
-| 4 | `prepare_order` / `submit_order`, idempotency via MCP, concurrency test | ⏳ next |
+| 4 | Order flow (preview → answers → submit), separate scopes, idempotency via MCP | ⏸ parked: awaiting real preview/submit API contracts ([docs/91](docs/91-backlog-orders-preview-submit.md)) |
 | 5 | Azure OpenAI harness with step-by-step tool-call trace | |
 | 6 | Evaluation suite + description-rewording experiment | |
 | 7 | Wrap-up: Spring AI mapping, pitfalls, production checklist | |
@@ -203,6 +203,9 @@ Grows each phase. Full version and verification notes are in
   stateless HTTP and the 2-replica experiment, CallerContext, scopes, tenant
   guard + security matrix, PII masking, injection before/after, resilience,
   audit.
+* [docs/91-backlog-orders-preview-submit.md](docs/91-backlog-orders-preview-submit.md):
+  **parked** Phase 4 design: separate `order:preview` / `order:submit` scopes,
+  multi-step preview via server-minted handle (recommended) vs MRTR elicitation.
 * [docs/90-backlog-external-validation.md](docs/90-backlog-external-validation.md):
   **parked** plan for validating against the official conformance suite,
   reference servers and other implementations (findings as of 2026-09-25).
