@@ -40,6 +40,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from telco_mcp_lab.ids import ACCOUNT_ID
 from telco_mcp_lab.mcp_server.security.caller import AccessModel, CallerContext
+from telco_mcp_lab.mcp_server.security.environment import ENVIRONMENTS
 
 log = logging.getLogger(__name__)
 
@@ -72,18 +73,47 @@ class ClientRegistry:
         self.clients = clients
         self.scope_map = scope_map
         self.access_model = access_model
+        self.problems: list[str] = []  # production guard findings (see load)
 
     @classmethod
-    def load(cls, path: Path, access_model: AccessModel) -> "ClientRegistry":
+    def load(
+        cls, path: Path, access_model: AccessModel, environment: str = "local"
+    ) -> "ClientRegistry":
+        """Load the registry for ONE environment.
+
+        An entry may carry `"environments": ["dev", "test"]`. Entries not tagged for
+        the current environment are skipped. In production every entry must be
+        tagged explicitly and include "production"; anything else is reported in
+        `problems`, which the production guard (G2) turns into a startup failure.
+        That keeps a lower-env client (e.g. the shared developer client) from ever
+        being accepted by production, even if the token service shared an issuer.
+        """
         raw = json.loads(path.read_text(encoding="utf-8"))
         scope_map = {k: v for k, v in raw.get("scope_map", {}).items() if not k.startswith("_")}
-        clients = {}
+        clients: dict[str, ClientDef] = {}
+        problems: list[str] = []
         for cid, v in raw["clients"].items():
             if v["mode"] not in ("bound", "customer_context"):
                 raise ValueError(f"client {cid!r}: mode must be bound or customer_context")
+            envs = v.get("environments")
+            if envs is not None:
+                unknown = set(envs) - set(ENVIRONMENTS)
+                if unknown or not envs:
+                    raise ValueError(f"client {cid!r}: bad environments {sorted(unknown)}")
+            if environment == "production" and (envs is None or "production" not in envs):
+                problems.append(
+                    f"client registry entry {cid!r} is not tagged for production "
+                    f"(environments={envs}); remove it or tag it after review"
+                )
+                continue
+            if envs is not None and environment not in envs:
+                log.info("client %r not enabled in %s; skipped", cid, environment)
+                continue
             scopes = frozenset(v["allowed_scopes"])
             clients[cid] = ClientDef(cid, v["mode"], scopes, v.get("tenant"))
-        return cls(clients, scope_map, access_model)
+        registry = cls(clients, scope_map, access_model)
+        registry.problems = problems
+        return registry
 
     def effective_scopes(self, client: ClientDef, token_scopes: Iterable[str]) -> frozenset[str]:
         mapped = {self.scope_map[s] for s in token_scopes if s in self.scope_map}

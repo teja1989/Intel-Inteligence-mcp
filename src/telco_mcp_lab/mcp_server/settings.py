@@ -18,6 +18,9 @@ class McpServerSettings(BaseSettings):
         env_prefix="MCP_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
+    # local | dev | test | production. production refuses lab/lower-env settings at
+    # startup (guardrail G2, security/environment.py, docs/08).
+    environment: Literal["local", "dev", "test", "production"] = "local"
     # static: lab tokens MCP_TOKEN_<CALLER> (demos/tests). jwt: tokens from the token service.
     auth_mode: Literal["static", "jwt"] = "static"
     access_config: Path = Path("config/access.json")

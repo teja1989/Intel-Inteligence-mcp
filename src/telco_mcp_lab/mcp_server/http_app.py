@@ -19,6 +19,7 @@ from starlette.types import ASGIApp
 
 from telco_mcp_lab.mcp_server.security.caller import AccessModel
 from telco_mcp_lab.mcp_server.security.clients import ClientRegistry, CustomerHeaderMiddleware
+from telco_mcp_lab.mcp_server.security.environment import ProductionFacts, enforce
 from telco_mcp_lab.mcp_server.security.jwt_verifier import JwksCache, JwtTokenVerifier
 from telco_mcp_lab.mcp_server.security.verifier import StaticTokenVerifier
 from telco_mcp_lab.mcp_server.server import TelcoFactory, build_server, default_telco_factory
@@ -39,15 +40,34 @@ def build_http_app(
 ) -> ASGIApp:
     verifier: TokenVerifier
     registry: ClientRegistry | None = None
+    js: JwtSettings | None = None
     issuer_url = "https://auth.telco-mcp-lab.invalid"
     if settings.auth_mode == "jwt":
         js = jwt_settings or JwtSettings()  # type: ignore[call-arg]  # from env / .env
-        registry = ClientRegistry.load(settings.clients_config, model)
+        registry = ClientRegistry.load(settings.clients_config, model, settings.environment)
+    # Guardrail G2: before any verifier or route exists (docs/08).
+    enforce(
+        settings.environment,
+        ProductionFacts(
+            transport="http",
+            auth_mode=settings.auth_mode,
+            public_url=settings.public_url,
+            unsafe_raw_free_text=settings.unsafe_raw_free_text,
+            legacy_sessions=legacy_sessions,
+            jwt_issuer=js.issuer if js else None,
+            jwt_audience=js.audience if js else None,
+            jwt_jwks_url=js.jwks_url if js else None,
+            jwt_jwks_file=js.jwks_file if js else None,
+            registry_problems=tuple(registry.problems) if registry else (),
+        ),
+    )
+    if js is not None and registry is not None:
         verifier = JwtTokenVerifier(js, JwksCache(js, transport=jwks_transport))
         if js.issuer.startswith("https://"):
             issuer_url = js.issuer
         log.info(
-            "http: auth=jwt issuer=%s audience=%s clients=%s",
+            "http: environment=%s auth=jwt issuer=%s audience=%s clients=%s",
+            settings.environment,
             js.issuer,
             js.audience,
             sorted(registry.clients),
@@ -55,7 +75,11 @@ def build_http_app(
     else:
         static = StaticTokenVerifier(model, env)
         verifier = static
-        log.info("http: auth=static (lab tokens) callers=%s", static.enabled_callers)
+        log.info(
+            "http: environment=%s auth=static (lab tokens) callers=%s",
+            settings.environment,
+            static.enabled_callers,
+        )
 
     server = build_server(
         telco_factory,

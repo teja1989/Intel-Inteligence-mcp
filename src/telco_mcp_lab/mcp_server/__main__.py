@@ -21,6 +21,11 @@ from dotenv import dotenv_values
 
 from telco_mcp_lab.mcp_server.http_app import build_http_app
 from telco_mcp_lab.mcp_server.security.caller import AccessModel
+from telco_mcp_lab.mcp_server.security.environment import (
+    ProductionFacts,
+    UnsafeProductionConfig,
+    enforce,
+)
 from telco_mcp_lab.mcp_server.server import build_server
 from telco_mcp_lab.mcp_server.settings import McpServerSettings
 
@@ -28,6 +33,14 @@ log = logging.getLogger("telco_mcp")
 
 
 def main() -> None:
+    try:
+        _main()
+    except UnsafeProductionConfig as exc:
+        log.critical("%s", exc)
+        sys.exit(2)
+
+
+def _main() -> None:
     parser = argparse.ArgumentParser(prog="telco-mcp-server")
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     parser.add_argument("--port", type=int, help="override MCP_PORT (e.g. for a 2nd replica)")
@@ -49,6 +62,16 @@ def main() -> None:
         log.warning("MCP_UNSAFE_RAW_FREE_TEXT is ON: free text reaches the model verbatim (demo)")
 
     if args.transport == "stdio":
+        # Guardrail G2: stdio has no authentication, so never in production.
+        enforce(
+            settings.environment,
+            ProductionFacts(
+                transport="stdio",
+                auth_mode=settings.auth_mode,
+                public_url=settings.public_url,
+                unsafe_raw_free_text=settings.unsafe_raw_free_text,
+            ),
+        )
         caller = model.context_for(settings.stdio_caller, via="stdio")
         log.info("stdio: acting as caller %r (tenant %s)", caller.caller_id, caller.tenant)
         server = build_server(

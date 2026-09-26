@@ -1,5 +1,5 @@
 {
-  "_comment": "Client registry for JWT mode (MCP_AUTH_MODE=jwt). Non-secret. One entry per client_id your token service issues tokens to. Client IDs and token scope names below are PLACEHOLDERS: replace with your real ones. Tenants come from config/access.json.",
+  "_comment": "Client registry for JWT mode (MCP_AUTH_MODE=jwt). Optional per-entry \"environments\" (local/dev/test/production): entries are loaded only where tagged, and production requires every entry to be tagged for production. Non-secret. One entry per client_id your token service issues tokens to. Client IDs and token scope names below are PLACEHOLDERS: replace with your real ones. Tenants come from config/access.json.",
 
   "scope_map": {
     "_comment": "token scope string -> server permission. Token scopes not listed here are ignored (fail closed).",
@@ -10,6 +10,12 @@
   },
 
   "clients": {
+    "lowerenv-shared": {
+      "mode": "customer_context",
+      "allowed_scopes": ["read"],
+      "environments": ["local", "dev", "test"],
+      "description": "The ONE shared client ID for all lower environments (people + automation). read only. Tagged so production refuses to start if it ever appears in a production registry (guardrail G2, docs/08 §5)."
+    },
     "care-agent-internal": {
       "mode": "customer_context",
       "allowed_scopes": ["read", "pii:read"],
