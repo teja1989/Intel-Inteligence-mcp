@@ -28,20 +28,21 @@
   account. Interim: internal clients only + the distinct-customer tripwire.
   Design notes: docs/06 §4, docs/07 §4.
 
-## Access for people and tools (lower environments vs production)
+## Access for people and tools (design: docs/08)
 
-- [ ] **Lower-env deployment** of the MCP server (+ mock APIs with synthetic data) behind
-  the enterprise gateway: CF manifest, `MCP_PUBLIC_URL`, `MCP_ALLOWED_HOSTS`, JWT settings
-  pointing at the lower-env token service, gateway pass-through of MCP headers.
-- [ ] **Token helper for developer tools** so nobody pastes a 2 h token: a
-  `headersHelper` script for Claude Code, and a small stdio→HTTP bridge (auto-refreshing
-  client-credentials token) for VS Code and other MCP clients.
-- [ ] Per-developer (or per-team) **lower-env client IDs**, never production ones.
-- [ ] Longer term: ask the token-service team for a user sign-in flow (OAuth
-  authorization code + PKCE / enterprise SSO). VS Code and Claude Code then handle
-  tokens natively, and calls are attributed to a person.
-- [ ] Production clients: client credentials from the secret store, cached, refreshed
-  before expiry, one retry on 401 (reference code for Python + Spring).
+- [ ] **Developer SSO sign-in for lower envs** (docs/08 §6): multiple trust profiles
+  (token service + corporate IdP), user policy (group/role gate, read only), protected-
+  resource metadata pointing at the IdP, audit user ID. Blocked on docs/08 §10 answers.
+- [ ] **Production startup guard (G2):** refuse user/SSO profiles, JWKS files, dev issuers
+  and static lab tokens when `MCP_ENVIRONMENT=production`.
+- [ ] **Shared lower-env client:** Claude Code `headersHelper` script (keychain) + a stdio
+  bridge for VS Code and other tools, auto-refreshing the 2 h token.
+- [ ] Secret scanning (pre-commit + CI) for the shared secret (G7).
+- [ ] **Lower-env deployment kit:** CF manifest, `MCP_PUBLIC_URL`, `MCP_ALLOWED_HOSTS`,
+  gateway pass-through of MCP headers, lower-env registry.
+- [ ] Reference token client for production apps (Python + Spring): cache, refresh
+  early, single-flight, one retry on 401.
+- [ ] Later: MCP Enterprise-Managed Authorization (ID-JAG) if the IdP supports it.
 
 ## Onboarding
 

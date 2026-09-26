@@ -265,6 +265,9 @@ Grows each phase. Full version and verification notes are in
 * [docs/06-external-agents.md](docs/06-external-agents.md): **integrator
   guide** for agent teams (internal and external): connecting, auth, customer
   context, errors, data handling, responsibilities, open decisions.
+* [docs/08-access-and-environments.md](docs/08-access-and-environments.md): **who may
+  connect how** in local / lower env / production: SSO for developers, the shared lower-env
+  client, production client credentials, guardrails G1–G11, secret handling, incidents.
 * [docs/TODO.md](docs/TODO.md): **parked work** (rate limits + Redis, abuse tripwires,
   customer verification, token helper for dev tools, onboarding, harness Claude adapter).
 * [docs/07-internal-jwt.md](docs/07-internal-jwt.md): **running internally**: JWT
