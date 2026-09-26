@@ -235,6 +235,34 @@ def url_verifier(server: JwksServer, clock: FakeClock) -> JwtTokenVerifier:
 
 
 class TestJwksCache:
+    async def test_cold_start_concurrent_requests_share_one_fetch(self):
+        """Review bug 2: requests arriving during the first JWKS fetch must wait, not 401."""
+        import asyncio
+
+        srv, clock = JwksServer(KEY), FakeClock()
+
+        async def slow(request):
+            await asyncio.sleep(0.1)
+            return srv.handler(request)
+
+        s = JwtSettings(
+            _env_file=None, issuer=ISS, audience=AUD, jwks_url="https://ts.invalid/jwks"
+        )
+        v = JwtTokenVerifier(s, JwksCache(s, transport=httpx.MockTransport(slow), clock=clock))
+        results = await asyncio.gather(*(v.verify_token(token(kid="k0")) for _ in range(10)))
+        assert all(r is not None for r in results)
+        assert srv.hits == 1
+
+    async def test_failed_cold_start_retries_quickly(self):
+        """No keys at all: retry after a few seconds, not the full rotation rate limit."""
+        srv, clock = JwksServer(KEY), FakeClock()
+        v = url_verifier(srv, clock)
+        srv.fail = True
+        assert await v.verify_token(token(kid="k0")) is None
+        srv.fail = False
+        clock.t += 6
+        assert await v.verify_token(token(kid="k0")) is not None
+
     async def test_fetched_once_and_cached(self):
         srv, clock = JwksServer(KEY), FakeClock()
         v = url_verifier(srv, clock)

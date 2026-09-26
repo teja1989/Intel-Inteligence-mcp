@@ -66,6 +66,15 @@ class CircuitBreaker:
     def on_success(self) -> None:
         self.state, self._failures, self._trial_in_flight = BreakerState.CLOSED, 0, False
 
+    def abandon(self) -> None:
+        """The call ended without a verdict on backend health (e.g. it was cancelled).
+
+        Frees the half-open trial slot WITHOUT changing state, so the next call
+        becomes the trial. Without this, a cancelled trial would leave the
+        breaker refusing every call forever.
+        """
+        self._trial_in_flight = False
+
     def on_failure(self) -> None:
         self._trial_in_flight = False
         self._failures += 1

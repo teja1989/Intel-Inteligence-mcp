@@ -150,14 +150,18 @@ class TelcoApiClient:
         async def attempt() -> httpx.Response:
             return await self._http.get(url, params=params)
 
+        # Every exit path must report to the breaker, or a half-open trial wedges it.
         try:
             resp = await with_retry(attempt, _retryable_read, self._retry)
         except httpx.TimeoutException as exc:
             breaker.on_failure()
             raise GatewayUnavailable("timeout") from exc
-        except httpx.TransportError as exc:
+        except httpx.HTTPError as exc:  # transport, protocol, decoding, …
             breaker.on_failure()
             raise GatewayUnavailable("connection failed") from exc
+        except BaseException:  # cancelled (client went away) or a bug: no health verdict
+            breaker.abandon()
+            raise
         # 4xx means the backend is healthy and answered; only 5xx counts against it.
         if resp.status_code >= 500:
             breaker.on_failure()

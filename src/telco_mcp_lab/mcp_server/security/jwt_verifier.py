@@ -27,6 +27,7 @@ Java/Spring equivalent: `NimbusJwtDecoder.withJwkSetUri(...)` plus
 `spring-boot-starter-oauth2-resource-server`.
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -62,7 +63,13 @@ class JwksCache:
     silently honours proxy environment variables) so the proxy and CA settings
     are explicit. A refresh caused by an unknown `kid` is rate-limited, so a
     stream of garbage tokens can't make us hammer the token service.
+
+    Refreshes are single-flight: concurrent requests (typically right after a
+    deploy or restart) wait for the one fetch in progress instead of seeing an
+    empty cache and failing with 401.
     """
+
+    COLD_RETRY_S = 5.0  # with NO keys at all, retry a failed fetch this soon
 
     def __init__(
         self,
@@ -76,6 +83,7 @@ class JwksCache:
         self._clock = clock
         self._keys: dict[str, SigningKey] = {}
         self._fetched_at: float | None = None
+        self._lock = asyncio.Lock()
 
     async def _load_document(self) -> dict[str, Any]:
         if self._s.jwks_file is not None:
@@ -114,12 +122,29 @@ class JwksCache:
         self._keys = keys
         log.info("jwks: loaded %d signing keys", len(keys))
 
+    def _needs_refresh(self, kid: str) -> bool:
+        if self._fetched_at is None:
+            return True
+        age = self._clock() - self._fetched_at
+        if age >= self._s.jwks_cache_s:
+            return True
+        if kid in self._keys:
+            return False
+        # Unknown kid: possibly a key rotation. Rate-limited; sooner while we have no keys.
+        wait = (
+            self._s.jwks_min_refresh_s
+            if self._keys
+            else min(self.COLD_RETRY_S, self._s.jwks_min_refresh_s)
+        )
+        return age >= wait
+
     async def key_for(self, kid: str) -> "SigningKey | None":
-        now = self._clock()
-        if self._fetched_at is None or now - self._fetched_at >= self._s.jwks_cache_s:
-            await self._refresh()
-        elif kid not in self._keys and now - self._fetched_at >= self._s.jwks_min_refresh_s:
-            await self._refresh()  # possibly a key rotation
+        # Also wait when a fetch is already in flight and we don't know this kid yet:
+        # it may be exactly the fetch that brings it.
+        if self._needs_refresh(kid) or (kid not in self._keys and self._lock.locked()):
+            async with self._lock:
+                if self._needs_refresh(kid):  # re-check: a waiter may find it already done
+                    await self._refresh()
         return self._keys.get(kid)
 
 

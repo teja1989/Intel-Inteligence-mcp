@@ -143,3 +143,62 @@ class TestCorporateProxyIsolation:
         order = await client.get_order("ORD-000123")
         assert order["order_id"] == "ORD-000123"
         await client.aclose()
+
+
+class TestBreakerNeverWedges:
+    """Review bug 1: a half-open trial that never reports back must not block the API forever."""
+
+    async def _open_then_half_open(self, client, clock):
+        breaker = client.breakers[DomainApi.ORDER]
+        breaker.clock, breaker.failure_threshold, breaker.cooldown_s = clock, 1, 5
+        breaker.before_call()
+        breaker.on_failure()
+        clock.t += 6  # cooldown over: the next call is the single trial
+        return breaker
+
+    @respx.mock
+    async def test_cancelled_trial_frees_the_slot(self):
+        import asyncio
+
+        async def hang(_request):
+            await asyncio.sleep(30)
+
+        client, clock = make_telco(), FakeClock()
+        client._retry = NO_WAIT
+        breaker = await self._open_then_half_open(client, clock)
+        respx.get(ORDER_URL).mock(side_effect=hang)
+        task = asyncio.create_task(client.get_order("ORD-000123"))
+        await asyncio.sleep(0.05)
+        task.cancel()  # e.g. the MCP client disconnected mid-call
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        # A cancellation says nothing about backend health: the next call is a new trial.
+        respx.get(ORDER_URL).respond(json={"order_id": "ORD-000123"})
+        assert (await client.get_order("ORD-000123"))["order_id"] == "ORD-000123"
+        assert breaker.state is BreakerState.CLOSED
+
+    @respx.mock
+    async def test_unexpected_http_error_counts_as_failure_not_a_wedge(self):
+        client, clock = make_telco(), FakeClock()
+        client._retry = NO_WAIT
+        breaker = await self._open_then_half_open(client, clock)
+        respx.get(ORDER_URL).mock(side_effect=httpx.DecodingError("bad gzip"))
+        with pytest.raises(GatewayUnavailable):
+            await client.get_order("ORD-000123")
+        assert breaker.state is BreakerState.OPEN  # failed trial re-opens...
+        clock.t += 6
+        respx.get(ORDER_URL).respond(json={"order_id": "ORD-000123"})
+        await client.get_order("ORD-000123")  # ...and recovers after the cooldown
+        assert breaker.state is BreakerState.CLOSED
+
+
+def test_abandon_frees_trial_without_changing_state():
+    clock = FakeClock()
+    b = CircuitBreaker("order", failure_threshold=1, cooldown_s=5, clock=clock)
+    b.before_call()
+    b.on_failure()
+    clock.t += 6
+    b.before_call()  # trial in flight
+    b.abandon()
+    assert b.state is BreakerState.HALF_OPEN
+    b.before_call()  # a new trial is allowed

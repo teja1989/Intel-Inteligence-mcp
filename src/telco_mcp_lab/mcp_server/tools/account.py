@@ -19,7 +19,7 @@ from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
 from telco_mcp_lab.mcp_server.security.caller import Scope
-from telco_mcp_lab.mcp_server.security.guard import resolve_account
+from telco_mcp_lab.mcp_server.security.guard import ensure_owned, resolve_account
 from telco_mcp_lab.mcp_server.security.scoped_server import ScopedMCPServer, current_caller
 from telco_mcp_lab.mcp_server.shaping.free_text import ShapedText, shape_free_text
 from telco_mcp_lab.mcp_server.shaping.pii import PiiPolicy
@@ -83,7 +83,11 @@ def register(mcp: ScopedMCPServer) -> None:
         state = app_state(ctx)
         async with gateway_errors():
             account = await state.telco.get_account(account_id)
+            ensure_owned(caller, account, "account", "ACC-1001")  # check BEFORE the 2nd call
             subs = await state.telco.all_subscriptions(account_id)
+        # Belt and braces, like the list tools: never count another account's rows,
+        # even if the backend ignored the filter.
+        subs = [s for s in subs if s.get("account_id") == account_id]
 
         pii = PiiPolicy(caller)
         by_status = Counter(s["status"] for s in subs)

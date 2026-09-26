@@ -6,6 +6,22 @@ SHELL := /bin/bash
 UV    ?= uv
 RUN   := $(UV) run
 
+# Preflight: every target except help/doctor needs uv. Fail with instructions, not "No such file".
+ifneq ($(filter-out help doctor,$(MAKECMDGOALS)),)
+ifeq ($(shell command -v $(UV) 2>/dev/null),)
+$(info )
+$(info uv (Python package manager) is not installed or not on PATH.)
+$(if $(wildcard $(HOME)/.local/bin/uv),$(info Found $(HOME)/.local/bin/uv: open a new terminal, or run: export PATH="$$HOME/.local/bin:$$PATH"))
+$(info Install one of:)
+$(info   macOS:        brew install uv)
+$(info   macOS/Linux:  curl -LsSf https://astral.sh/uv/install.sh | sh   (then open a new terminal))
+$(info   proxy blocks astral.sh:  python3 -m pip install --user uv)
+$(info Then run: make doctor && make setup)
+$(info )
+$(error uv not found)
+endif
+endif
+
 # Load .env for recipes that need values (chaos/curl). Values stay in the shell, never echoed.
 LOAD_ENV := set -a; [ -f .env ] && . ./.env; set +a
 MOCK_URL  = http://$${MOCK_HOST:-127.0.0.1}:$${MOCK_PORT:-8081}
@@ -17,11 +33,30 @@ TRACED_CMD := $(UV) run --quiet python scripts/stdio_trace.py $(SERVER_CMD)
 ACCOUNT    ?= ACC-1001
 
 ##@ Setup
-.PHONY: help setup env env-tokens
+.PHONY: help doctor setup env env-tokens
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*##"; printf "\nUsage: make <target>\n"} \
 	  /^##@/{printf "\n\033[1m%s\033[0m\n", substr($$0,5)} \
 	  /^[a-zA-Z_-]+:.*##/{printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+doctor: ## Check prerequisites (uv, Python 3.12, Node, .env, ports, proxy) with fix hints
+	@ok=1; \
+	if command -v $(UV) >/dev/null 2>&1; then echo "✅ uv $$($(UV) --version | cut -d' ' -f2)"; \
+	else echo "❌ uv missing: brew install uv  |  curl -LsSf https://astral.sh/uv/install.sh | sh"; ok=0; fi; \
+	if command -v $(UV) >/dev/null 2>&1; then \
+	  if $(UV) python find 3.12 >/dev/null 2>&1; then echo "✅ Python 3.12 ($$($(UV) python find 3.12))"; \
+	  else echo "⚠️  Python 3.12 not found: make setup will download it (needs github.com via your proxy)."; \
+	       echo "    If downloads are blocked: brew install python@3.12, then UV_PYTHON_DOWNLOADS=never make setup"; fi; fi; \
+	if command -v node >/dev/null 2>&1; then echo "✅ node $$(node --version) (Inspector needs >= 22.19)"; \
+	else echo "ℹ️  node not found: only needed for MCP Inspector (make inspector*)"; fi; \
+	if [ -f .env ]; then echo "✅ .env present"; else echo "ℹ️  no .env yet: run make env"; fi; \
+	for p in 8081 8090; do \
+	  if (exec 3<>/dev/tcp/127.0.0.1/$$p) 2>/dev/null; then echo "⚠️  port $$p already in use (MOCK_PORT / MCP_PORT to change)"; \
+	  else echo "✅ port $$p free"; fi; done; \
+	if [ -n "$${HTTPS_PROXY}$${https_proxy}$${HTTP_PROXY}$${http_proxy}" ]; then \
+	  case ",$${NO_PROXY}$${no_proxy}," in *127.0.0.1*|*localhost*) echo "✅ proxy set, localhost excluded";; \
+	  *) echo "⚠️  proxy set but NO_PROXY lacks 127.0.0.1,localhost (our code bypasses it; curl/Inspector may not)";; esac; fi; \
+	[ $$ok = 1 ] || exit 1
 
 setup: ## Install Python 3.12 + pinned dependencies (uv.lock) into .venv
 	$(UV) sync --locked

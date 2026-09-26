@@ -191,3 +191,29 @@ class TestConfig:
         f.write_text(json.dumps(bad))
         with pytest.raises(ValueError, match="unknown action"):
             Guardrails.load(f)
+
+
+class TestGroundingNumberFormats:
+    """Review bug 4: the same number written differently is still the same number."""
+
+    MASKED = ['{"msisdn": "+44*******111"}']  # alice only ever saw the masked number
+    FULL = ['{"msisdn": "+447700900111"}']  # carol (pii:read) got it from the server
+
+    @pytest.mark.parametrize(
+        "written",
+        ["+447700900111", "+44 7700 900111", "07700 900111", "07700900111",
+         "+44-7700-900111", "0044 7700 900 111", "+44 (0) 7700 900111", "07700.900.111"],
+    )  # fmt: skip
+    def test_ungrounded_number_removed_in_any_format(self, written):
+        out = RAILS.check_output(f"Your number is {written}.", self.MASKED)
+        assert "900111" not in out.text and "900 111" not in out.text
+        assert "[phone number removed]" in out.text
+
+    @pytest.mark.parametrize("written", ["+447700900111", "07700 900111", "+44 7700 900111"])
+    def test_grounded_number_kept_in_any_format(self, written):
+        out = RAILS.check_output(f"Your number is {written}.", self.FULL)
+        assert written in out.text
+
+    def test_a_different_number_is_not_grounded_by_a_similar_one(self):
+        out = RAILS.check_output("Call 07700 900999.", self.FULL)
+        assert "900999" not in out.text

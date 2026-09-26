@@ -29,11 +29,20 @@ concept transfers to Java.
 
 ## Quick start
 
-Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/),
-GNU make, curl. **Node ≥ 22.19** for MCP Inspector 2.x (Phase 2+).
-uv downloads Python 3.12 automatically if you don't have it.
+Prerequisites (macOS, Linux, or Windows via WSL):
+
+* [uv](https://docs.astral.sh/uv/getting-started/installation/), the Python package manager:
+  `brew install uv`, or `curl -LsSf https://astral.sh/uv/install.sh | sh` (then open a new
+  terminal), or behind a proxy that blocks astral.sh: `python3 -m pip install --user uv`.
+* make, bash, curl (preinstalled on macOS/Linux).
+* **Node ≥ 22.19**, only for MCP Inspector.
+* uv downloads Python 3.12 if you don't have it (from GitHub). If your proxy blocks that:
+  `brew install python@3.12`, then `UV_PYTHON_DOWNLOADS=never make setup`.
+
+Run `make doctor` first: it checks all of the above and prints the fix for anything missing.
 
 ```bash
+make doctor    # check prerequisites (uv, Python 3.12, node, ports, proxy)
 make setup     # install pinned deps (uv.lock) into .venv, Python 3.12
 make env       # create .env with a random gateway token (never overwrites)
 make check     # lint + full test suite; should be green before anything else

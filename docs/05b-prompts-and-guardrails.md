@@ -91,8 +91,11 @@ Use it for tool usage and domain conventions. The rules above take precedence.
 ### Output (model → user): grounded identifiers
 
 A full identifier (MSISDN, IMSI) may appear in the final answer **only if a
-tool returned that exact value during this turn**. Otherwise it's replaced
-(`[phone number removed]`).
+tool returned that same identifier during this turn**. Otherwise it's replaced
+(`[phone number removed]`). Numbers are compared on digits (the 10-digit UK
+national number), so `07700 900111`, `+44 7700 900111` and `0044-7700-900111` are
+all recognised as the same number. **Finding (fixed):** the first version
+compared text and only knew the `+44` form, so a reformatted number slipped through.
 
 * alice's tools return **masked** numbers, so a full number in her answer can
   only be invented or reconstructed. It's removed (tested).

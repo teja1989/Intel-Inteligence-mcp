@@ -12,8 +12,10 @@ Input rules (applied in file order to the user's message, before the LLM sees it
   warn   : send it, but record a guardrail event (for review / metrics)
 
 Output rule, "grounded identifiers": a full identifier (MSISDN, IMSI) may
-appear in the final answer ONLY if a tool returned it verbatim during this
-turn. The server already decided who may see full numbers (`pii:read`), so the
+appear in the final answer ONLY if a tool returned the same identifier during
+this turn. "Same" is compared on digits (optionally the last N), so
+"07700 900111" and "+447700900111" are one number, whatever the formatting.
+The server already decided who may see full numbers (`pii:read`), so the
 host doesn't need to know scopes. Anything else (hallucinated, pulled from
 the user's earlier text, reconstructed from a masked value) is redacted.
 
@@ -43,6 +45,12 @@ class OutputRule:
     name: str
     pattern: re.Pattern[str]
     replacement: str
+    # Compare only the last N digits (e.g. 10 = the UK national number without 0/+44).
+    compare_last_digits: int | None = None
+
+    def key(self, matched: str) -> str:
+        digits = re.sub(r"\D", "", matched)
+        return digits[-self.compare_last_digits :] if self.compare_last_digits else digits
 
 
 @dataclass
@@ -75,7 +83,12 @@ class Guardrails:
                 for r in raw["input"]["rules"]
             ]
             outputs = [
-                OutputRule(r["name"], re.compile(r["regex"]), r["replacement"])
+                OutputRule(
+                    r["name"],
+                    re.compile(r["regex"]),
+                    r["replacement"],
+                    r.get("compare_last_digits"),
+                )
                 for r in raw["output"]["grounded_identifiers"]
             ]
         except re.error as exc:
@@ -118,11 +131,13 @@ class Guardrails:
         corpus = "\n".join(grounding)
         for rule in self.output_rules:
             removed = 0
+            # What the server actually returned, normalised (masked values never match).
+            grounded = {rule.key(m.group(0)) for m in rule.pattern.finditer(corpus)}
 
-            def replace(m: re.Match[str], rule: OutputRule = rule) -> str:
+            def replace(m: re.Match[str], rule: OutputRule = rule, grounded=grounded) -> str:
                 nonlocal removed
-                if m.group(0) in corpus:
-                    return m.group(0)  # grounded: the server returned this exact value
+                if rule.key(m.group(0)) in grounded:
+                    return m.group(0)  # grounded: the server returned this number
                 removed += 1
                 return rule.replacement
 

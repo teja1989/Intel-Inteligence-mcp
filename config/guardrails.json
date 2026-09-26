@@ -17,9 +17,12 @@
   },
   "output": {
     "grounded_identifiers": [
-      {"name": "msisdn", "regex": "\\+?44\\s?7\\d{3}\\s?\\d{6}\\b", "replacement": "[phone number removed]"},
+      {"name": "msisdn",
+       "regex": "(?<![\\d+])(?:(?:\\+|00)?44[\\s.-]?(?:\\(0\\)[\\s.-]?)?|0)7(?:[\\s.-]?\\d){9}(?!\\d)",
+       "compare_last_digits": 10, "replacement": "[phone number removed]",
+       "why": "UK mobile in any common format (+44 / 0044 / 44 / 0, spaces, dots, dashes, (0)); compared on the 10-digit national number."},
       {"name": "imsi",   "regex": "\\b\\d{15}\\b",                 "replacement": "[IMSI removed]"}
     ],
-    "_grounded_identifiers": "An identifier may appear in the final answer ONLY if a tool returned it verbatim in this turn. The server decides who sees full numbers (pii:read); anything else (hallucinated, echoed from elsewhere) is redacted."
+    "_grounded_identifiers": "An identifier may appear in the final answer ONLY if a tool returned the same identifier (compared on digits) in this turn. The server decides who sees full numbers (pii:read); anything else (hallucinated, echoed from elsewhere) is redacted."
   }
 }
