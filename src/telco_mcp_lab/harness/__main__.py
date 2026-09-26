@@ -104,6 +104,13 @@ def diagnose(exc: BaseException) -> str:
     return text
 
 
+def explain(exc: BaseException) -> str:
+    """diagnose(), after unwrapping async ExceptionGroups down to the real cause."""
+    while isinstance(exc, BaseExceptionGroup) and exc.exceptions:
+        exc = exc.exceptions[0]
+    return diagnose(exc)
+
+
 async def check(hs: HarnessSettings) -> int:
     ok = True
     who = "bearer token (JWT)" if hs.bearer_token else repr(hs.caller)

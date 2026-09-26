@@ -56,10 +56,13 @@
 
 ## Agent harness
 
-- [x] **Claude + Gemini adapters** and the **Streamlit chat UI** (2026-09-26, docs/10).
-- [ ] First live run with real Claude / Gemini keys; pin a Gemini model ID your company allows.
-- [ ] Chat UI: y/N confirmation dialog for non-read-only tools (needed before Phase 4 writes);
-  streaming answers.
+- [x] **Claude + Gemini adapters** + `make model-check` (2026-09-26, docs/05 §Providers).
+  Streamlit chat UI built, then removed to keep the lab lean: interactive testing now
+  happens in existing MCP hosts (Claude Code, Google Antigravity).
+- [ ] First live `make model-check` with real Claude / Gemini keys; pin a Gemini model ID
+  your company allows.
+- [ ] Confirm the Antigravity MCP config format (stdio command, or the connector bridge
+  for JWT mode); add it to docs/09.
 - [ ] Gemini via Vertex AI (Google Cloud credentials) if that's the approved route.
 
 ## Confirm with other teams

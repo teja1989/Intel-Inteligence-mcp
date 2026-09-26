@@ -201,3 +201,49 @@ most-specific-first, and there's a test for it.)
    model can only say a note exists.
 7. Compare GPT-5 vs GPT-4.x deployments on the same questions. Phase 6 turns
    this into numbers.
+
+## Providers: Claude, Gemini, Azure OpenAI
+
+The harness speaks to three model providers through small adapters with one interface
+(`harness/llm*.py`). The MCP server never sees which one is used.
+
+| Provider | Key in `.env` | Model setting | Adapter notes |
+|---|---|---|---|
+| Claude | `CHAT_CLAUDE_API_KEY` or `ANTHROPIC_API_KEY` | `CHAT_CLAUDE_MODEL` (default `claude-opus-5`) | Thinking blocks passed back unchanged during a tool loop; tool results grouped in one message; `refusal` checked first; server-side refusal fallback on |
+| Gemini | `CHAT_GEMINI_API_KEY` or `GEMINI_API_KEY` / `GOOGLE_API_KEY` | `CHAT_GEMINI_MODEL` (default alias `gemini-flash-latest`: pin one your company allows) | Model content (thought signatures) replayed unchanged; automatic function calling off; blocked/safety stops → fixed answer. Gemini Developer API only (no Vertex AI yet) |
+| Azure OpenAI | `AZURE_OPENAI_*` (above) | deployment | as described above |
+
+`HARNESS_LLM=claude|gemini|azure` (or `LLM=` on make) picks one; empty = the first
+configured. `make env-update` adds any new settings to an existing `.env`.
+
+**Pinned on purpose:** base URL and API mode are always passed explicitly, and the
+SDKs never follow redirects. Claude Code exports `ANTHROPIC_BASE_URL` into shells it
+runs, the Anthropic SDK reads it on its own, and `GOOGLE_GENAI_USE_VERTEXAI` switches
+the Google SDK to a different API. Without pinning, a key could be sent elsewhere.
+Tests cover all of it.
+
+**Check one real model end to end:**
+
+```bash
+make mocks                     # terminal 1
+make mcp-http                  # terminal 2
+make model-check LLM=gemini    # terminal 3
+```
+
+It runs as lab caller alice and prints PASS/FAIL, with a fix hint, for six steps:
+1. provider configured;
+2. MCP server reachable;
+3. a plain reply;
+4. a **real tool call** (schemas accepted; thinking or signatures replayed);
+5. a follow-up turn;
+6. tenant isolation.
+
+It was rehearsed against a strict fake Gemini API over HTTPS: all six pass, and
+without the signature replay step 4 fails with Gemini's own error. A run with a real
+key is the live test.
+
+**Interactive testing** uses existing MCP hosts, not a UI of our own: Claude Code or
+Google Antigravity, pointed at the server over stdio (no auth), or through the
+connector for JWT mode (docs/09). Test from an empty folder with the host's file/shell
+tools off, so answers come from the tools, not from reading the repo.
+

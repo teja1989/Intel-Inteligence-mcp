@@ -81,15 +81,6 @@ class ClientCredentials:
         self._lock = asyncio.Lock()
         self.fetches = 0  # observable for tests and `check`
 
-    def export(self) -> tuple[str, float] | None:
-        """(token, expires_at) to carry to a later instance, e.g. across UI reruns."""
-        return (self._token, self._expires_at) if self._token else None
-
-    def seed(self, cached: tuple[str, float] | None) -> None:
-        """Start from an earlier token; it's still refreshed early like any other."""
-        if cached:
-            self._token, self._expires_at = cached
-
     def _fresh(self) -> bool:
         return (
             self._token is not None and self._clock() < self._expires_at - self._s.refresh_margin_s
