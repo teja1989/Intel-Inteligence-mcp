@@ -61,12 +61,91 @@ class AzureOpenAISettings(BaseSettings):
         return v
 
 
+def _existing_file(v: Path | None, name: str) -> Path | None:
+    if v is not None and not v.is_file():
+        raise ValueError(f"{name} file not found: {v}")
+    return v
+
+
+class ClaudeSettings(BaseSettings):
+    """Claude via the Anthropic API. Prefix CHAT_CLAUDE_, deliberately NOT CLAUDE_ or
+    ANTHROPIC_: Claude Code exports variables such as CLAUDE_EFFORT and
+    ANTHROPIC_BASE_URL into shells it runs, and the Anthropic SDK reads
+    ANTHROPIC_BASE_URL on its own. Launched from such a shell, the chat app would
+    otherwise send your key to a different endpoint. Everything here is explicit."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="CHAT_CLAUDE_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    api_key: SecretStr = Field(min_length=8)
+    model: str = "claude-opus-5"
+    max_tokens: int = Field(default=16000, ge=256, le=64000)  # non-streaming: keep < ~16k
+    # low | medium | high | xhigh | max; None = the model's default (Opus 5: high).
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
+    # Server-side refusal fallback (`fallbacks: "default"`): a declined request is re-run
+    # on Anthropic's recommended substitute. Recommended for claude-opus-5.
+    fallbacks: bool = True
+    # Always sent explicitly (never taken from ANTHROPIC_BASE_URL). Change only for an
+    # approved corporate gateway in front of the Anthropic API.
+    base_url: str = "https://api.anthropic.com"
+    proxy: str | None = None  # else HTTPS_PROXY from the environment is used
+    ca_bundle: Path | None = None
+    timeout_s: float = Field(default=120.0, gt=0, le=600)
+    max_retries: int = Field(default=2, ge=0, le=5)
+
+    @field_validator("ca_bundle")
+    @classmethod
+    def _ca(cls, v: Path | None) -> Path | None:
+        return _existing_file(v, "CHAT_CLAUDE_CA_BUNDLE")
+
+    @field_validator("base_url")
+    @classmethod
+    def _https(cls, v: str) -> str:
+        if urlsplit(v).scheme != "https":
+            raise ValueError("CHAT_CLAUDE_BASE_URL must be https")
+        return v
+
+
+class GeminiSettings(BaseSettings):
+    """Gemini via the Gemini Developer API (API key). Prefix CHAT_GEMINI_: the Google
+    SDK reads GEMINI_API_KEY / GOOGLE_API_KEY / GOOGLE_GENAI_USE_VERTEXAI /
+    GOOGLE_GEMINI_BASE_URL on its own; everything here is passed explicitly instead.
+    (Vertex AI / Google Cloud credentials: not supported yet.)"""
+
+    model_config = SettingsConfigDict(
+        env_prefix="CHAT_GEMINI_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+    )
+
+    api_key: SecretStr = Field(min_length=8)
+    # An alias from the SDK's own documentation; pin a specific model ID your company allows.
+    model: str = "gemini-flash-latest"
+    base_url: str = "https://generativelanguage.googleapis.com/"
+    proxy: str | None = None
+    ca_bundle: Path | None = None
+    timeout_s: float = Field(default=120.0, gt=0, le=600)
+
+    @field_validator("ca_bundle")
+    @classmethod
+    def _ca(cls, v: Path | None) -> Path | None:
+        return _existing_file(v, "CHAT_GEMINI_CA_BUNDLE")
+
+    @field_validator("base_url")
+    @classmethod
+    def _https(cls, v: str) -> str:
+        if urlsplit(v).scheme != "https":
+            raise ValueError("CHAT_GEMINI_BASE_URL must be https")
+        return v
+
+
 class HarnessSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="HARNESS_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
     mcp_url: str = "http://127.0.0.1:8090/mcp"
+    # claude | gemini | azure. Unset: the first configured one, in that order.
+    llm: Literal["claude", "gemini", "azure"] | None = None
     caller: str = "alice"  # uses MCP_TOKEN_<CALLER> from .env
     # JWT mode: a token from the token service (or `make token`) replaces MCP_TOKEN_<CALLER>.
     bearer_token: SecretStr | None = None
@@ -75,7 +154,7 @@ class HarnessSettings(BaseSettings):
     customer_account_id: str | None = Field(default=None, pattern=r"^ACC-\d{4}(,ACC-\d{4})*$")
     customer_header: str = "X-Customer-Account-Id"
 
-    @field_validator("bearer_token", "customer_account_id", mode="before")
+    @field_validator("bearer_token", "customer_account_id", "llm", mode="before")
     @classmethod
     def _blank_is_unset(cls, v: object) -> object:  # blank .env lines mean "not set"
         return None if isinstance(v, str) and not v.strip() else v

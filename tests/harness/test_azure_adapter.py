@@ -161,4 +161,5 @@ class TestEndToEndWithMockedAzure:
         second = json.loads(fake.requests[1].content)["messages"]
         tool_msg = [m for m in second if m["role"] == "tool"][0]
         assert tool_msg["tool_call_id"] == "call_1"
+        assert not any(k.startswith("_") for m in second for k in m)  # host-internal keys stay home
         assert json.loads(tool_msg["content"])["status"] == "COMPLETED"

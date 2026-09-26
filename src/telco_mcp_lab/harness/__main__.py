@@ -1,6 +1,6 @@
 """Run the harness.
 
-    uv run python -m telco_mcp_lab.harness --check                 # connectivity: MCP + Azure
+    uv run python -m telco_mcp_lab.harness --check                 # connectivity: MCP + model
     uv run python -m telco_mcp_lab.harness "what plans am I on?"   # one question
     uv run python -m telco_mcp_lab.harness                         # interactive chat (REPL)
     uv run python -m telco_mcp_lab.harness --caller bob "list my lines"
@@ -23,11 +23,10 @@ import httpx2
 from dotenv import dotenv_values
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
-from pydantic import ValidationError
 
+from telco_mcp_lab.harness import models
 from telco_mcp_lab.harness.agent import Agent, deny_all
 from telco_mcp_lab.harness.guardrails import Guardrails
-from telco_mcp_lab.harness.llm import AzureChatModel
 from telco_mcp_lab.harness.prompts import load_system_prompt
 from telco_mcp_lab.harness.settings import AzureOpenAISettings, HarnessSettings
 from telco_mcp_lab.harness.trace import Tracer
@@ -80,12 +79,14 @@ def diagnose(exc: BaseException) -> str:
         "Name or service not known": "DNS: check the resource name in AZURE_OPENAI_ENDPOINT.",
         "nodename nor servname": "DNS: check the resource name in AZURE_OPENAI_ENDPOINT.",
         "Connection refused": "MCP server not running? Start: make mocks && make mcp-http",
-        "401": "401: key rejected. Check AZURE_OPENAI_API_KEY; "
-        "try AZURE_OPENAI_AUTH_HEADER=api-key.",
-        "403": "403: key valid but not allowed (network rules / RBAC on the resource?).",
-        "404": "404: wrong AZURE_OPENAI_ENDPOINT (must end /openai/v1/) or deployment name.",
+        "401": "401: key rejected. Check the provider's key in .env: CHAT_CLAUDE_API_KEY, "
+        "CHAT_GEMINI_API_KEY or AZURE_OPENAI_API_KEY "
+        "(Azure: try AZURE_OPENAI_AUTH_HEADER=api-key).",
+        "403": "403: key valid but not allowed (org/project policy, region, or Azure RBAC).",
+        "404": "404: wrong model name (CHAT_CLAUDE_MODEL / CHAT_GEMINI_MODEL) or, for Azure, "
+        "AZURE_OPENAI_ENDPOINT (must end /openai/v1/) / deployment name.",
         "ConnectError": "Cannot connect: VPN/proxy? Is HTTPS_PROXY needed on this network?",
-        "APIConnectionError": "Cannot reach Azure: check endpoint, VPN and HTTPS_PROXY.",
+        "APIConnectionError": "Cannot reach the model API: check VPN, HTTPS_PROXY and base URL.",
     }
     for needle, hint in hints.items():
         if needle in text:
@@ -124,19 +125,23 @@ async def check(hs: HarnessSettings) -> int:
         ok = False
         print(f"      ❌ {exc}")
 
-    print("[2/3] Azure OpenAI settings …")
+    print("[2/3] Model provider settings …")
     try:
+        provider = models.resolve(hs.llm)
+    except RuntimeError as exc:
+        print(f"      ❌ {exc}")
+        return 1
+    print(f"      ✅ {models.LABELS[provider]}, model {models.model_name(provider)!r}")
+    if provider == "azure":
         az = AzureOpenAISettings()  # type: ignore[call-arg]
         proxy = "set" if az.proxy or ENV.get("HTTPS_PROXY") else "none"
         ca = az.ca_bundle or ENV.get("SSL_CERT_FILE") or "system default"
-        print(f"      ✅ endpoint {az.endpoint}, deployment {az.deployment!r}")
-        print(f"         auth header {az.auth_header}, proxy {proxy}, CA bundle {ca}")
-    except ValidationError as exc:
-        print(f"      ❌ {exc}")
-        return 1
+        print(
+            f"         endpoint {az.endpoint}, auth header {az.auth_header}, proxy {proxy}, CA {ca}"
+        )
 
-    print("[3/3] Azure OpenAI round trip (one tiny completion, no tools) …")
-    llm = AzureChatModel(az)
+    print(f"[3/3] {models.LABELS[provider]} round trip (one tiny request, no tools) …")
+    llm = models.build_chat_model(provider)
     try:
         started = time.perf_counter()
         turn = await llm.complete([{"role": "user", "content": "Reply with exactly: OK"}], [])
@@ -152,7 +157,13 @@ async def check(hs: HarnessSettings) -> int:
 
 
 async def chat(hs: HarnessSettings, prompt: str | None) -> int:
-    llm = AzureChatModel(AzureOpenAISettings())  # type: ignore[call-arg]
+    try:
+        provider = models.resolve(hs.llm)
+    except RuntimeError as exc:
+        print(f"❌ {exc}")
+        return 1
+    llm = models.build_chat_model(provider)
+    print(f"model: {models.LABELS[provider]} ({models.model_name(provider)})", file=sys.stderr)
     tracer = Tracer(jsonl=hs.trace_dir / f"run-{time.strftime('%Y%m%d-%H%M%S')}.jsonl")
     client, http = mcp_client(hs)
     try:
@@ -186,11 +197,12 @@ async def chat(hs: HarnessSettings, prompt: str | None) -> int:
 def main() -> None:
     p = argparse.ArgumentParser(prog="harness")
     p.add_argument("prompt", nargs="?")
-    p.add_argument("--check", action="store_true", help="test MCP + Azure connectivity")
+    p.add_argument("--check", action="store_true", help="test MCP + model connectivity")
     p.add_argument("--caller", help="override HARNESS_CALLER (alice, bob, carol, mallory)")
     p.add_argument("--mcp-url", help="override HARNESS_MCP_URL")
     p.add_argument("--protocol", choices=["auto", "legacy"])
     p.add_argument("--customer", help="override HARNESS_CUSTOMER_ACCOUNT_ID (JWT mode)")
+    p.add_argument("--llm", choices=["claude", "gemini", "azure"], help="override HARNESS_LLM")
     a = p.parse_args()
     logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
     given = {
@@ -198,6 +210,7 @@ def main() -> None:
         "mcp_url": a.mcp_url,
         "customer_account_id": a.customer,
         "protocol": a.protocol,
+        "llm": a.llm,
     }
     overrides = {k: v for k, v in given.items() if v}
     hs = HarnessSettings(**overrides)

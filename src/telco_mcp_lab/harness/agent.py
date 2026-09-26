@@ -119,25 +119,33 @@ class Agent:
                 self.tracer.final(checked.text)
                 return result
 
-            self.history.append(
-                {
-                    "role": "assistant",
-                    "content": turn.content,
-                    "tool_calls": [
-                        {
-                            "id": c.id,
-                            "type": "function",
-                            "function": {"name": c.name, "arguments": c.arguments},
-                        }
-                        for c in turn.tool_calls
-                    ],
-                }
-            )
+            assistant: dict[str, Any] = {
+                "role": "assistant",
+                "content": turn.content,
+                "tool_calls": [
+                    {
+                        "id": c.id,
+                        "type": "function",
+                        "function": {"name": c.name, "arguments": c.arguments},
+                    }
+                    for c in turn.tool_calls
+                ],
+            }
+            if turn.native is not None:  # e.g. Claude thinking blocks: must go back verbatim
+                assistant["_native"] = turn.native
+            self.history.append(assistant)
             for call in turn.tool_calls:
                 content, record = await self._execute(call.name, call.arguments)
                 result.tool_calls.append(record)
                 grounding.append(content)
-                self.history.append({"role": "tool", "tool_call_id": call.id, "content": content})
+                self.history.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.id,
+                        "content": content,
+                        "_is_error": record["is_error"],
+                    }
+                )
 
         result.stopped_reason = "max_steps"
         self.tracer.stopped(f"max_steps={self.max_steps} reached without a final answer")
@@ -171,5 +179,6 @@ class Agent:
         result = await self.mcp.call_tool(name, args)
         content = result_to_message_content(result)
         record["is_error"] = result.is_error
+        record["result"] = content
         self.tracer.tool_result(name, result.is_error, content, time.perf_counter() - started)
         return content, record

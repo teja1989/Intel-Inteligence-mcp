@@ -31,6 +31,16 @@ class AssistantTurn:
     content: str | None
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: dict[str, int] | None = None
+    # Provider-specific message data the provider needs back verbatim on the next call
+    # (Claude thinking blocks, Gemini thought signatures). Opaque to the agent, which
+    # stores it on the assistant message as "_native". Keys starting with "_" are
+    # host-internal and never sent to a provider as-is.
+    native: Any = None
+
+
+def outbound(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Messages without host-internal ("_"-prefixed) keys, for providers that reject extras."""
+    return [{k: v for k, v in m.items() if not k.startswith("_")} for m in messages]
 
 
 class ChatModel(Protocol):
@@ -84,7 +94,7 @@ class AzureChatModel:
     async def complete(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]
     ) -> AssistantTurn:
-        params: dict[str, Any] = {"model": self._s.deployment, "messages": messages}
+        params: dict[str, Any] = {"model": self._s.deployment, "messages": outbound(messages)}
         if tools:
             params["tools"] = tools
             params["tool_choice"] = "auto"
