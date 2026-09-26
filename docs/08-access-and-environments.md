@@ -1,6 +1,6 @@
 # 08 · Access, environments and guardrails
 
-> **Status: v0.1, 2026-09-26.** Decisions from the lead: internal consumers only for now;
+> **Status: v0.2, 2026-09-26.** G2 and the developer connector are built (see below). Decisions from the lead: internal consumers only for now;
 > **one shared client ID + secret for all lower environments**; **developer sign-in
 > (SSO) for VS Code / Claude Code in lower environments** so people never handle tokens.
 > Items marked **OPEN** need answers (§10). Items marked **BUILD** are designed but not
@@ -44,11 +44,11 @@ Code or Inspector. **BUILD**, needs §10 answers.
 - Every call is attributed to a person in the audit log.
 
 **B. Shared lower-env client (client credentials).** For automation, and for developers
-whose tool can't do SSO.
+whose tool can't do SSO. **Built:** the connector, set up per docs/09.
 - One client ID and secret for all lower environments (lead decision), with the rules in §5.
 - Tools use a token helper, never a pasted token:
   - Claude Code: `headersHelper`, which is re-run automatically on a 401.
-  - VS Code and other tools: a local stdio bridge (**BUILD**).
+  - VS Code and other tools: a local stdio bridge (built).
 
 **C. Production agent apps (client credentials).** The standard OAuth 2.0 flow in
 application code (§7).
@@ -61,7 +61,7 @@ servers take credentials from the environment, not OAuth). Mock data only.
 | # | Guardrail | Enforced by | Status |
 |---|---|---|---|
 | G1 | Tokens are accepted only from the configured issuer(s), with the exact audience of *this* environment, an asymmetric signature and ≤ 2 h lifetime | Server code (`jwt_verifier.py`) | ✅ enforced, tested |
-| G2 | **Production refuses to start** with any lower-env-only setting: SSO (user) trust profile, JWKS *file*, dev issuer (`.invalid`), static lab tokens | Server startup check on `MCP_ENVIRONMENT=production` | **BUILD** |
+| G2 | **Production refuses to start** with any lab or lower-env setting: stdio, static lab tokens, `--legacy-sessions`, raw free text, JWKS *file*, non-https or local/reserved-domain (`.invalid`, `.test`, `localhost`, …) public URL / issuer / audience / JWKS URL, and any registry entry not tagged `"environments": [..., "production"]`. Will also cover SSO user profiles when built | `MCP_ENVIRONMENT=production` startup check (`security/environment.py`), exit code 2 | ✅ enforced, tested (incl. mutation checks) |
 | G3 | Only registered clients get anything; effective scopes = token ∩ registry | Server code (`clients.py`) | ✅ enforced, tested |
 | G4 | SSO users must be in an approved group / app role (e.g. `MCP-LowerEnv-Testers`), assigned in the identity provider **and** re-checked by the server | IdP app assignment + server | **BUILD** |
 | G5 | SSO users get lower-env policy only: `read`, synthetic tenant or customer header, never write scopes | Server policy for user principals | **BUILD** |

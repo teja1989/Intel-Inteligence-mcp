@@ -2,7 +2,8 @@
 
 Shippable (what you'd deploy):  telco_mcp_lab.mcp_server + the shared contract
 modules it uses (ids, gateway_routes, the package __init__).
-Lab rig (never deployed):       harness (LLM test client), mock_apis, devtools, scripts.
+Lab rig (never deployed):       harness (LLM test client), mock_apis, devtools, scripts,
+                                connect (developer-side token connector).
 
 The server has NO LLM dependency: agents (hosts) bring their own model. A
 server that imported an LLM SDK would blur who is responsible for what, and
@@ -25,6 +26,7 @@ FORBIDDEN = (
     "telco_mcp_lab.harness",
     "telco_mcp_lab.mock_apis",
     "telco_mcp_lab.devtools",
+    "telco_mcp_lab.connect",  # developer-side token connector (lower envs only)
     "tests",
     "scripts",
 )

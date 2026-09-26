@@ -70,15 +70,16 @@ env: ## Create .env from .env.example with fresh random tokens (won't overwrite 
 	      -e "s|^MCP_TOKEN_ALICE=.*|MCP_TOKEN_ALICE=$$(gen)|" \
 	      -e "s|^MCP_TOKEN_BOB=.*|MCP_TOKEN_BOB=$$(gen)|" \
 	      -e "s|^MCP_TOKEN_CAROL=.*|MCP_TOKEN_CAROL=$$(gen)|" \
-	      -e "s|^MCP_TOKEN_MALLORY=.*|MCP_TOKEN_MALLORY=$$(gen)|" .env.example > .env; \
+	      -e "s|^MCP_TOKEN_MALLORY=.*|MCP_TOKEN_MALLORY=$$(gen)|" \
+	      -e "s|^DEV_TOKEN_SERVICE_CLIENT_SECRET=.*|DEV_TOKEN_SERVICE_CLIENT_SECRET=$$(gen)|" .env.example > .env; \
 	  chmod 600 .env; echo "Created .env (mode 600) with random gateway + caller tokens."; fi
 
-env-tokens: ## Add missing MCP caller tokens to an EXISTING .env (from Phase 1/2)
-	@for c in ALICE BOB CAROL MALLORY; do \
-	  if ! grep -q "^MCP_TOKEN_$$c=." .env; then \
-	    sed -i.bak "/^MCP_TOKEN_$$c=/d" .env; \
-	    echo "MCP_TOKEN_$$c=$$($(RUN) python -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env; \
-	    echo "added MCP_TOKEN_$$c"; fi; done; rm -f .env.bak
+env-tokens: ## Add missing lab tokens/secrets (MCP_TOKEN_*, dev token service) to an EXISTING .env
+	@for v in MCP_TOKEN_ALICE MCP_TOKEN_BOB MCP_TOKEN_CAROL MCP_TOKEN_MALLORY DEV_TOKEN_SERVICE_CLIENT_SECRET; do \
+	  if ! grep -q "^$$v=." .env; then \
+	    sed -i.bak "/^$$v=/d" .env; \
+	    echo "$$v=$$($(RUN) python -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env; \
+	    echo "added $$v"; fi; done; rm -f .env.bak
 
 ##@ Run (each in its own terminal)
 .PHONY: mocks
@@ -154,6 +155,31 @@ demo-jwt: ## Walk through JWT mode: bad tokens (401), bound vs customer-context 
 
 test-jwt: ## Run only the JWT / client-registry / customer-context tests
 	$(RUN) pytest tests/mcp_server/test_jwt_auth.py -v
+
+##@ Developer tools with the shared lower-env client (docs/09; local stand-ins)
+.PHONY: dev-token-service connect-local connect-check test-connect
+CONFIG ?= .data/connect/local.env
+
+dev-token-service: ## DEV ONLY: local token service on :8095 (client credentials; needs dev-keys)
+	@[ -f .data/dev-keys/private.pem ] || { echo "run: make dev-keys"; exit 1; }
+	$(RUN) python -m telco_mcp_lab.devtools.token_service
+
+connect-local: ## Write .data/connect/local.env: connector config for the LOCAL stack (no real secrets)
+	@mkdir -p .data/connect
+	@printf '%s\n' \
+	  "# Connector config for the LOCAL stack (make mocks, mcp-http-jwt, dev-token-service)." \
+	  "TELCO_MCP_URL=http://127.0.0.1:8090/mcp" \
+	  "TELCO_MCP_TOKEN_URL=http://127.0.0.1:8095/oauth/token" \
+	  "TELCO_MCP_CLIENT_ID=lowerenv-shared" \
+	  "TELCO_MCP_SECRET_COMMAND=$(CURDIR)/.venv/bin/python $(CURDIR)/scripts/local_dev_secret.py" \
+	  "TELCO_MCP_CUSTOMER=ACC-1001" > .data/connect/local.env
+	@chmod 600 .data/connect/local.env; echo "wrote .data/connect/local.env (use with --config)"
+
+connect-check: ## Token + tools/list through the connector, no secrets printed (CONFIG=… default local)
+	$(RUN) python -m telco_mcp_lab.connect check --config $(CONFIG)
+
+test-connect: ## Run only the connector + dev token service tests
+	$(RUN) pytest tests/connect -v
 
 ##@ LLM harness: Azure OpenAI as the MCP host (Phase 5; needs mocks + mcp-http running)
 .PHONY: harness-check ask chat

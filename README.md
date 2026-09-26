@@ -23,6 +23,7 @@ concept transfers to Java.
 | E1 | External-agent readiness: boundary + architecture test, generated tool catalog, integrator guide | ✅ done ([docs/06](docs/06-external-agents.md)) |
 | E2 (internal) | JWT validation at the server (token service JWKS, iss/aud/exp/lifetime), client registry, customer-context header, `/healthz` | ✅ done, dev token-service stand-in ([docs/07](docs/07-internal-jwt.md)); real token-service values to confirm |
 | E2 (external) | Signed customer handle (B2), step-up / scope challenges | parked (agent platform set aside) |
+| Access | Production guard (G2), environment-tagged registry, developer connector (headersHelper + stdio bridge) for the shared lower-env client | ✅ done ([docs/08](docs/08-access-and-environments.md), [docs/09](docs/09-connect-dev-tools.md)); Azure AD sign-in for developers planned |
 | E3 | Rate limiting per client/customer, catalog versioning in `_meta` | planned |
 | 6 | Evaluation suite + description-rewording experiment | |
 | 7 | Wrap-up: Spring AI mapping, pitfalls, production checklist | |
@@ -88,6 +89,7 @@ Run `make` for all targets. Current list:
 | `harness-check` / `ask` / `chat` | Azure OpenAI harness: connectivity check; one question; interactive (`CALLER=`) |
 | `mcp-http` / `mcp-cluster` | Stateless Streamable HTTP server; 2 replicas + round-robin LB |
 | `dev-keys` / `token` / `mcp-http-jwt` / `demo-jwt` / `test-jwt` | E2 JWT mode: dev keys + tokens (`CLIENT=`, `SCOPES=`), server, walkthrough, tests |
+| `dev-token-service` / `connect-local` / `connect-check` / `test-connect` | Shared lower-env client: local token service, connector config, end-to-end check, tests (docs/09) |
 | `demo-http` / `demo-injection` / `inspector-http` | HTTP walkthrough per caller; injection before/after; Inspector UI for HTTP |
 | `chaos-slow` / `chaos-fail` / `chaos-off` / `chaos-status` | Inject 5 s latency / 503s into the backend, or turn it off |
 | `test` / `test-fast` / `test-mocks` / `test-client` / `test-harness` / `test-protocol` / `test-security` | Full suite / no slow tests / mock gateway / MCP server / harness (offline) / real-transport protocol tests / security-marked |
@@ -176,6 +178,8 @@ src/telco_mcp_lab/
                         guardrails · trace · CLI
   devtools/round_robin_lb.py  gorouter stand-in for the scaling demo
   devtools/token_issuer.py    DEV-ONLY token-service stand-in: RSA key, JWKS, mint tokens
+  devtools/token_service.py   DEV-ONLY OAuth client-credentials endpoint + JWKS (:8095)
+  connect/                    developer-side connector: headers (Claude Code) / bridge (stdio) / check
 config/access.json      tenants → accounts, callers → tenant + scopes (non-secret)
 config/clients.json     JWT mode: registered client_ids, bound/customer_context, allowed scopes
 config/guardrails.json  host guardrails: input redact/block/warn, grounded-identifier output rule
@@ -268,6 +272,9 @@ Grows each phase. Full version and verification notes are in
 * [docs/08-access-and-environments.md](docs/08-access-and-environments.md): **who may
   connect how** in local / lower env / production: SSO for developers, the shared lower-env
   client, production client credentials, guardrails G1–G11, secret handling, incidents.
+* [docs/09-connect-dev-tools.md](docs/09-connect-dev-tools.md): **connect VS Code / Claude
+  Code / Inspector** to a lower env with the shared client: keychain, `headersHelper`, stdio
+  bridge, local rehearsal, troubleshooting.
 * [docs/TODO.md](docs/TODO.md): **parked work** (rate limits + Redis, abuse tripwires,
   customer verification, token helper for dev tools, onboarding, harness Claude adapter).
 * [docs/07-internal-jwt.md](docs/07-internal-jwt.md): **running internally**: JWT

@@ -30,13 +30,15 @@
 
 ## Access for people and tools (design: docs/08)
 
-- [ ] **Developer SSO sign-in for lower envs** (docs/08 §6): multiple trust profiles
+- [ ] **Developer SSO sign-in for lower envs (Azure AD; MCP onboarding process TBD)** (docs/08 §6): multiple trust profiles
   (token service + corporate IdP), user policy (group/role gate, read only), protected-
   resource metadata pointing at the IdP, audit user ID. Blocked on docs/08 §10 answers.
-- [ ] **Production startup guard (G2):** refuse user/SSO profiles, JWKS files, dev issuers
-  and static lab tokens when `MCP_ENVIRONMENT=production`.
-- [ ] **Shared lower-env client:** Claude Code `headersHelper` script (keychain) + a stdio
-  bridge for VS Code and other tools, auto-refreshing the 2 h token.
+- [x] **Production startup guard (G2)** + registry `environments` tags (2026-09-26).
+  Extend it to SSO user profiles when those are built.
+- [x] **Shared lower-env client connector** (`telco_mcp_lab.connect`: headers / bridge /
+  check) + local dev token service (2026-09-26, docs/09).
+- [ ] Confirm the bridge in **VS Code** itself (verified with the SDK client and Claude Code only).
+- [ ] Set the real token endpoint format (`TELCO_MCP_CLIENT_AUTH`, scope) once known.
 - [ ] Secret scanning (pre-commit + CI) for the shared secret (G7).
 - [ ] **Lower-env deployment kit:** CF manifest, `MCP_PUBLIC_URL`, `MCP_ALLOWED_HOSTS`,
   gateway pass-through of MCP headers, lower-env registry.
