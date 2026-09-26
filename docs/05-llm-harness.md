@@ -1,5 +1,13 @@
 # 05 · The LLM harness: Azure OpenAI as the MCP host
 
+> **Role in the big picture:** the harness is a **lab test client that
+> simulates an external agent**. It is *not* part of the MCP server and is never
+> deployed: the server has no LLM dependency (enforced by
+> `tests/test_architecture.py`). In production, agents (yours or third parties'
+> such as an agent platform) play this role with their own model. Keep it for
+> learning, for testing tool descriptions against a real model, and for Phase 6
+> evaluations. See docs/06 for what real agents must do.
+
 > **Phase 5 goal:** see exactly how LLM-driven "routing" works. The harness is
 > the **host**: it connects to our MCP server as a **client**, offers the tools
 > to **Azure OpenAI** (function calling), executes the model's tool calls over

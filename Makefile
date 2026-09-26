@@ -158,6 +158,11 @@ fmt: ## Auto-format and apply safe lint fixes
 
 check: lint test ## Everything CI would run: lint + full test suite
 
+##@ Contract for external agents
+.PHONY: catalog
+catalog: ## Regenerate docs/tool-catalog.md from the live tool definitions (a test enforces it)
+	$(RUN) python -m telco_mcp_lab.mcp_server.catalog
+
 ##@ Housekeeping
 .PHONY: reset-data clean
 reset-data: ## Delete the mock gateway's SQLite data (orders/drafts/idempotency)

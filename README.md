@@ -20,6 +20,9 @@ concept transfers to Java.
 | 4 | Order flow (preview → answers → submit), separate scopes, idempotency via MCP | ⏸ parked: awaiting real preview/submit API contracts ([docs/91](docs/91-backlog-orders-preview-submit.md)) |
 | 5 | Azure OpenAI harness with step-by-step tool-call trace | ✅ done (offline-tested; run `make harness-check` on your machine) |
 | 5b | Prompt layers (routing / server instructions / agent prompt) and host guardrails | ✅ done ([docs/05b](docs/05b-prompts-and-guardrails.md)) |
+| E1 | External-agent readiness: boundary + architecture test, generated tool catalog, integrator guide | ✅ done ([docs/06](docs/06-external-agents.md)) |
+| E2 | External identity: token validation, client registry, customer context (A/B), step-up | ⏳ next (after identity decisions) |
+| E3 | Rate limiting per client/customer, catalog versioning in `_meta` | planned |
 | 6 | Evaluation suite + description-rewording experiment | |
 | 7 | Wrap-up: Spring AI mapping, pitfalls, production checklist | |
 
@@ -65,6 +68,7 @@ Run `make` for all targets. Current list:
 | `inspector` / `inspector-cli-list` / `inspector-cli-call` | MCP Inspector 2.8.0, web or headless (`ACCOUNT=`, `ERA=`) |
 | `traces` | List captured JSON-RPC traces (`.data/traces`) |
 | `env-tokens` | Add the Phase 3 caller tokens to an existing `.env` |
+| `catalog` | Regenerate `docs/tool-catalog.md` from the live tool definitions (drift-tested) |
 | `harness-check` / `ask` / `chat` | Azure OpenAI harness: connectivity check; one question; interactive (`CALLER=`) |
 | `mcp-http` / `mcp-cluster` | Stateless Streamable HTTP server; 2 replicas + round-robin LB |
 | `demo-http` / `demo-injection` / `inspector-http` | HTTP walkthrough per caller; injection before/after; Inspector UI for HTTP |
@@ -73,46 +77,56 @@ Run `make` for all targets. Current list:
 | `lint` / `fmt` / `check` | Ruff (incl. `S` security rules) / auto-fix / lint + tests |
 | `reset-data` / `clean` | Wipe backend SQLite data / caches |
 
-## Architecture (target by Phase 5)
+## What ships vs the lab rig
+
+**The MCP server has no LLM.** Agents (hosts), internal or external such as
+an agent platform, bring their own model and call our tools. Everything in
+this repo is either the **server you ship** or a **lab rig** that stands in for
+the world around it. An architecture test (`tests/test_architecture.py`) fails
+if the server ever imports the rig or an LLM SDK.
+
+| Ships (production candidate) | Lab rig (never deployed) |
+|---|---|
+| `src/telco_mcp_lab/mcp_server/`: the MCP server | `harness/`: **simulated external agent** (Azure OpenAI host) used to test and evaluate the tools |
+| `ids.py`, `gateway_routes.py`: shared contract modules | `mock_apis/`: stands in for the API gateway + domain APIs |
+| `config/access.json` (→ client registry in E2) | `devtools/`: round-robin LB (gorouter stand-in) |
+| `docs/tool-catalog.md` (generated contract) | `scripts/`: demos, wire tracer, smoke tests |
+| `docs/06-external-agents.md` (integrator guide) | `prompts/`, `config/guardrails.json`: the *agent's* prompt/guardrails (examples of what an agent owns) |
 
 ```mermaid
 flowchart LR
-    U([You]) --> H
-    subgraph H["Harness = MCP Host (Phase 5)"]
-        AOAI[[Azure OpenAI<br/>function calling]]
-        MC[MCP Client<br/>mcp SDK]
-    end
-    MC -- "Streamable HTTP, stateless<br/>Authorization: Bearer token" --> S
-    I[MCP Inspector] -. "stdio (Phase 2) / HTTP" .-> S
-    subgraph S["MCP Server (mcp v2, MCPServer)"]
+    subgraph EXT["Agents (hosts): NOT ours to trust"]
         direction TB
-        SEC["security/<br/>CallerContext · tenant guard · scopes"]
-        T["tools/<br/>7 task-oriented tools"]
-        SH["shaping/<br/>PII mask · strip free text"]
-        E["errors/<br/>actionable tool errors"]
-        CL["clients/<br/>httpx · timeout · retry · breaker"]
+        X1["External agent platform<br/>(e.g. Sierra)"]
+        X2["Internal agent"]
+        H["harness/ (lab)<br/>simulated external agent<br/>Azure OpenAI"]
+    end
+    EXT -- "Streamable HTTP, stateless<br/>Bearer token (client credentials)" --> GW
+    GW["API gateway<br/>(token validation)"] --> S
+    subgraph S["MCP server: SHIPS"]
+        direction TB
+        SEC["security/<br/>scopes · customer boundary · audit"]
+        T["tools/ (catalog = contract)"]
+        SH["shaping/<br/>mask PII · withhold injected text"]
+        CL["clients/<br/>timeouts · retry · breaker"]
         SEC --> T --> CL
         T --> SH
-        T --> E
     end
-    CL -- "/{microservice}/API/...<br/>Authorization: Bearer service token" --> B
-    subgraph B["Mock API gateway + microservices (FastAPI) ✅ Phase 1"]
+    CL -- "own service token<br/>(never the agent's)" --> B
+    subgraph B["Domain APIs (lab: mock_apis/)"]
         A1[boaccount] --- A2[bosubscription] --- A3[boservice]
-        A4[boorder + drafts] --- A5[boordersubmission<br/>Idempotency-Key]
-        DB[(SQLite)]
-        A4 --- DB
-        A5 --- DB
+        A4[boorder] --- A5[boordersubmission]
     end
 ```
 
 Two trust boundaries, deliberately different:
 
-* **User → MCP server:** bearer token → *tenant + scopes*. The tenant is
-  enforced by the MCP server.
-* **MCP server → gateway:** the MCP server's **own** service token (Option A).
-  The caller's token is never passed through, which the MCP spec forbids. The
-  gateway and backends trust the MCP server completely, which is why the MCP
-  server must never let arguments choose the tenant.
+* **Agent → MCP server:** untrusted. Token → client + scopes; the server
+  enforces scopes and the customer boundary itself, and never relies on the
+  agent's prompt or confirmation UI.
+* **MCP server → gateway:** the MCP server's **own** service token. The
+  agent's token is never passed through (the MCP spec forbids it). Backends
+  trust the MCP server, which is why arguments can never choose the customer.
 
 ## Repository layout
 
@@ -227,6 +241,12 @@ Grows each phase. Full version and verification notes are in
 * [docs/05-llm-harness.md](docs/05-llm-harness.md): the host loop, real
   step trace, host guards and y/N confirmation, data boundary to Azure, v1
   endpoint + corporate proxy config, `harness-check` diagnostics.
+* [docs/06-external-agents.md](docs/06-external-agents.md): **integrator
+  guide** for agent teams (internal and external): connecting, auth, customer
+  context, errors, data handling, responsibilities, open decisions.
+* [docs/tool-catalog.md](docs/tool-catalog.md): **generated** tool contract with catalog hash.
+* [docs/92-industry-gap-analysis.md](docs/92-industry-gap-analysis.md): scorecard
+  against the 2026-07-28 spec + security best practices.
 * [docs/05b-prompts-and-guardrails.md](docs/05b-prompts-and-guardrails.md):
   where routing (tool descriptions), server instructions, the agent prompt and
   guardrails each live; who owns them; what's enforced where; Spring AI mapping.

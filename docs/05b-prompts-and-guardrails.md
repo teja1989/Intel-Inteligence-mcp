@@ -5,6 +5,12 @@
 > prompt text**, each owned by a different party, plus **guardrails enforced in
 > code**, which do the actual protecting.
 
+> **Who implements what, for external agents:** layers A, B and the server
+> half of E are **yours** (the MCP server). Layer C and the host half of E belong
+> to **whoever builds the agent**. For third-party agents that's a *contract*
+> (docs/06 §8), not code you write, and the server must stay safe even if the
+> agent ignores it. The harness implements them only to demonstrate them.
+
 ## The rule of thumb
 
 > **If the model ignored this sentence, could something bad happen?
