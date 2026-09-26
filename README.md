@@ -265,6 +265,8 @@ Grows each phase. Full version and verification notes are in
 * [docs/06-external-agents.md](docs/06-external-agents.md): **integrator
   guide** for agent teams (internal and external): connecting, auth, customer
   context, errors, data handling, responsibilities, open decisions.
+* [docs/TODO.md](docs/TODO.md): **parked work** (rate limits + Redis, abuse tripwires,
+  customer verification, token helper for dev tools, onboarding, harness Claude adapter).
 * [docs/07-internal-jwt.md](docs/07-internal-jwt.md): **running internally**: JWT
   validation, client registry, customer-context header, run steps, the values to
   confirm with the token-service team, and what changes before real APIs.
