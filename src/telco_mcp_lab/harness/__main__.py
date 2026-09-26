@@ -76,6 +76,16 @@ def diagnose(exc: BaseException) -> str:
         "(and proxy credentials, allow-list for *.openai.azure.com).",
         "CERTIFICATE_VERIFY_FAILED": "TLS: your proxy inspects TLS. Set AZURE_OPENAI_CA_BUNDLE "
         "(or SSL_CERT_FILE) to your corporate root CA PEM.",
+        # Gemini (google-genai) error codes, before the generic HTTP-status hints below.
+        "API_KEY_INVALID": "Gemini rejected the key: check CHAT_GEMINI_API_KEY / GEMINI_API_KEY "
+        "(an AI Studio key for the Gemini Developer API, not a Google Cloud key).",
+        "RESOURCE_EXHAUSTED": "Quota/rate limit reached for this key or model: wait, or use "
+        "another CHAT_GEMINI_MODEL / project quota.",
+        "is not found for API version": "Unknown model: set CHAT_GEMINI_MODEL to a model your key "
+        "can use.",
+        "INVALID_ARGUMENT": "The model API rejected the request. With Gemini this is usually the "
+        "model name or a tool schema: send the full message so the adapter can be fixed.",
+        "PERMISSION_DENIED": "Key valid but not allowed for this model/region (org policy?).",
         "Name or service not known": "DNS: check the resource name in AZURE_OPENAI_ENDPOINT.",
         "nodename nor servname": "DNS: check the resource name in AZURE_OPENAI_ENDPOINT.",
         "Connection refused": "MCP server not running? Start: make mocks && make mcp-http",

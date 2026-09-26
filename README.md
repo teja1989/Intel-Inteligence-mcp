@@ -72,6 +72,8 @@ make token CLIENT=care-agent-internal SCOPES="read pii:read"   # token for Inspe
 make harness-check       # MCP ✅, Azure settings ✅, one tiny completion ✅
 make ask Q="what plans am I on?"      # full step trace; CALLER=bob to switch identity
 make chat                             # multi-turn
+make env-update                       # existing .env? add the new settings (never overwrites)
+make model-check LLM=gemini           # one real model end to end: reply, tool call, follow-up, isolation
 make chat-ui                          # browser chat: Claude / Gemini / Azure (docs/10)
 ```
 
@@ -93,6 +95,7 @@ Run `make` for all targets. Current list:
 | `dev-keys` / `token` / `mcp-http-jwt` / `demo-jwt` / `test-jwt` | E2 JWT mode: dev keys + tokens (`CLIENT=`, `SCOPES=`), server, walkthrough, tests |
 | `dev-token-service` / `connect-local` / `connect-check` / `test-connect` | Shared lower-env client: local token service, connector config, end-to-end check, tests (docs/09) |
 | `chat-ui` / `test-chat-ui` | Streamlit chat on 127.0.0.1:8501 (Claude / Gemini / Azure); its tests (docs/10) |
+| `env-update` / `model-check` | Add new `.env.example` settings to your `.env`; real-model end-to-end check (`LLM=gemini\|claude\|azure`) |
 | `demo-http` / `demo-injection` / `inspector-http` | HTTP walkthrough per caller; injection before/after; Inspector UI for HTTP |
 | `chaos-slow` / `chaos-fail` / `chaos-off` / `chaos-status` | Inject 5 s latency / 503s into the backend, or turn it off |
 | `test` / `test-fast` / `test-mocks` / `test-client` / `test-harness` / `test-protocol` / `test-security` | Full suite / no slow tests / mock gateway / MCP server / harness (offline) / real-transport protocol tests / security-marked |

@@ -33,7 +33,7 @@ TRACED_CMD := $(UV) run --quiet python scripts/stdio_trace.py $(SERVER_CMD)
 ACCOUNT    ?= ACC-1001
 
 ##@ Setup
-.PHONY: help doctor setup env env-tokens
+.PHONY: help doctor setup env env-tokens env-update
 help: ## Show this help
 	@awk 'BEGIN{FS=":.*##"; printf "\nUsage: make <target>\n"} \
 	  /^##@/{printf "\n\033[1m%s\033[0m\n", substr($$0,5)} \
@@ -49,7 +49,9 @@ doctor: ## Check prerequisites (uv, Python 3.12, Node, .env, ports, proxy) with 
 	       echo "    If downloads are blocked: brew install python@3.12, then UV_PYTHON_DOWNLOADS=never make setup"; fi; fi; \
 	if command -v node >/dev/null 2>&1; then echo "✅ node $$(node --version) (Inspector needs >= 22.19)"; \
 	else echo "ℹ️  node not found: only needed for MCP Inspector (make inspector*)"; fi; \
-	if [ -f .env ]; then echo "✅ .env present"; else echo "ℹ️  no .env yet: run make env"; fi; \
+	if [ -f .env ]; then echo "✅ .env present"; \
+	  command -v $(UV) >/dev/null 2>&1 && $(UV) run --quiet python scripts/env_update.py --check; \
+	else echo "ℹ️  no .env yet: run make env"; fi; \
 	for p in 8081 8090; do \
 	  if (exec 3<>/dev/tcp/127.0.0.1/$$p) 2>/dev/null; then echo "⚠️  port $$p already in use (MOCK_PORT / MCP_PORT to change)"; \
 	  else echo "✅ port $$p free"; fi; done; \
@@ -73,6 +75,9 @@ env: ## Create .env from .env.example with fresh random tokens (won't overwrite 
 	      -e "s|^MCP_TOKEN_MALLORY=.*|MCP_TOKEN_MALLORY=$$(gen)|" \
 	      -e "s|^DEV_TOKEN_SERVICE_CLIENT_SECRET=.*|DEV_TOKEN_SERVICE_CLIENT_SECRET=$$(gen)|" .env.example > .env; \
 	  chmod 600 .env; echo "Created .env (mode 600) with random gateway + caller tokens."; fi
+
+env-update: ## Add settings that are new in .env.example to your existing .env (never overwrites)
+	@$(RUN) python scripts/env_update.py $${CHECK:+--check}
 
 env-tokens: ## Add missing lab tokens/secrets (MCP_TOKEN_*, dev token service) to an EXISTING .env
 	@for v in MCP_TOKEN_ALICE MCP_TOKEN_BOB MCP_TOKEN_CAROL MCP_TOKEN_MALLORY DEV_TOKEN_SERVICE_CLIENT_SECRET; do \
@@ -181,6 +186,16 @@ connect-check: ## Token + tools/list through the connector, no secrets printed (
 test-connect: ## Run only the connector + dev token service tests
 	$(RUN) pytest tests/connect -v
 
+##@ Model check: one real model end to end (needs mocks + mcp-http, and a key in .env)
+.PHONY: model-check
+LLM ?=
+ifneq ($(strip $(LLM)),)
+export HARNESS_LLM := $(LLM)
+endif
+
+model-check: ## Real model E2E: reply, tool call, follow-up, isolation (LLM=gemini|claude|azure)
+	$(RUN) python scripts/model_check.py
+
 ##@ Chat UI: Streamlit, Claude / Gemini / Azure OpenAI (docs/10; needs mocks + mcp-http or mcp-http-jwt)
 .PHONY: chat-ui test-chat-ui
 chat-ui: ## Browser chat on http://127.0.0.1:8501: pick model + identity, see every tool call
@@ -196,7 +211,7 @@ test-chat-ui: ## Run only the chat UI + model adapter tests (no network, no spen
 harness-check: ## Verify MCP + Azure connectivity (prints actionable hints on failure)
 	$(RUN) python -m telco_mcp_lab.harness --check
 
-ask: ## One question with a full step trace: make ask Q="what plans am I on?" [CALLER=bob]
+ask: ## One question with a full step trace: make ask Q="what plans am I on?" [CALLER=bob] [LLM=gemini]
 	@test -n "$(Q)" || { echo 'usage: make ask Q="your question" [CALLER=alice|bob|carol|mallory]'; exit 2; }
 	$(RUN) python -m telco_mcp_lab.harness $${CALLER:+--caller $$CALLER} "$(Q)"
 

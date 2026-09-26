@@ -83,8 +83,15 @@ class TestSettings:
         await fake.model().complete([{"role": "user", "content": "hi"}], [])
         assert fake.requests[0].url.host == "api.anthropic.com"
 
+    def test_standard_key_name_accepted_chat_name_wins(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-standard-name-123")
+        assert ClaudeSettings(_env_file=None).api_key.get_secret_value().endswith("name-123")
+        monkeypatch.setenv("CHAT_CLAUDE_API_KEY", KEY)
+        assert ClaudeSettings(_env_file=None).api_key.get_secret_value() == KEY
+
     def test_api_key_required(self, monkeypatch):
-        monkeypatch.setenv("ANTHROPIC_API_KEY", KEY)  # NOT used as a fallback
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("CHAT_CLAUDE_API_KEY", raising=False)
         with pytest.raises(ValueError):
             ClaudeSettings(_env_file=None)
 

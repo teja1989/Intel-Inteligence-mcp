@@ -6,15 +6,31 @@
 > (127.0.0.1), synthetic data only. The MCP server doesn't change; it doesn't know
 > which model is calling.
 
-## 1. Run it
+## 1. Run it (shortest path)
 
 ```bash
-make setup                      # installs the `chat` group too (streamlit + model SDKs)
-# .env: at least one provider (see §3), e.g. CHAT_CLAUDE_API_KEY=sk-ant-…
+git pull && make setup
+make env-update                 # adds new settings (incl. Gemini/Claude) to your existing .env
+# in .env set ONE key: CHAT_GEMINI_API_KEY=… (or GEMINI_API_KEY=…), or CHAT_CLAUDE_API_KEY=…
 make mocks                      # terminal 1
-make mcp-http                   # terminal 2 (lab callers)  — or make mcp-http-jwt (§2)
-make chat-ui                    # terminal 3 → http://127.0.0.1:8501
+make mcp-http                   # terminal 2
+make model-check LLM=gemini     # terminal 3: proves the model works end to end (6 steps)
+make chat-ui                    # then the browser: http://127.0.0.1:8501
 ```
+
+`make model-check` runs a real conversation through the chat UI's own code path as
+lab caller alice:
+1. provider configured;
+2. MCP server reachable;
+3. a plain reply;
+4. **a real tool call** (schemas accepted, thought signatures / thinking replayed);
+5. a follow-up turn;
+6. tenant isolation.
+
+It prints PASS/FAIL per step with a fix hint.
+Rehearsed in the build environment against a strict fake Gemini API over HTTPS (real
+SDK, real MCP server): all 6 pass, and removing the thought-signature replay makes step 4
+fail with Gemini's own error. **Your run with a real key is the live test.**
 
 ## 2. What you choose in the sidebar
 
@@ -34,17 +50,18 @@ never would.
 
 | Provider | Required | Optional |
 |---|---|---|
-| Claude | `CHAT_CLAUDE_API_KEY` | `CHAT_CLAUDE_MODEL` (default `claude-opus-5`), `CHAT_CLAUDE_EFFORT`, `CHAT_CLAUDE_FALLBACKS` (default on), `CHAT_CLAUDE_PROXY`, `CHAT_CLAUDE_CA_BUNDLE` |
-| Gemini | `CHAT_GEMINI_API_KEY` (Gemini Developer API) | `CHAT_GEMINI_MODEL` (default alias `gemini-flash-latest`: **pin a model your company allows**), `CHAT_GEMINI_PROXY`, `CHAT_GEMINI_CA_BUNDLE` |
+| Claude | `CHAT_CLAUDE_API_KEY` or `ANTHROPIC_API_KEY` | `CHAT_CLAUDE_MODEL` (default `claude-opus-5`), `CHAT_CLAUDE_EFFORT`, `CHAT_CLAUDE_FALLBACKS` (default on), `CHAT_CLAUDE_PROXY`, `CHAT_CLAUDE_CA_BUNDLE` |
+| Gemini | `CHAT_GEMINI_API_KEY` or `GEMINI_API_KEY` / `GOOGLE_API_KEY` (Gemini Developer API) | `CHAT_GEMINI_MODEL` (default alias `gemini-flash-latest`: **pin a model your company allows**), `CHAT_GEMINI_PROXY`, `CHAT_GEMINI_CA_BUNDLE` |
 | Azure OpenAI | `AZURE_OPENAI_ENDPOINT`, `_API_KEY`, `_DEPLOYMENT` (docs/05) | as before |
 
-**Why `CHAT_CLAUDE_` / `CHAT_GEMINI_` and not the usual names?** Found while building:
+**Standard key names work** (the `CHAT_…` name wins if both are set; an empty `CHAT_…` line
+doesn't hide the standard one). **Everything else is pinned.** Found while building:
 Claude Code exports `CLAUDE_EFFORT` and `ANTHROPIC_BASE_URL` into shells it runs, and
 the Anthropic SDK reads `ANTHROPIC_BASE_URL` by itself. Launched from such a shell,
-the app would have sent **your key to a different endpoint**. The Google SDK
-likewise reads `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI` (which
-switches to a different API) and `GOOGLE_GEMINI_BASE_URL`. So every key, base URL
-and API choice is passed explicitly, and tests pin it.
+the app would have sent **your key to a different endpoint**. The Google SDK likewise
+reads `GOOGLE_GENAI_USE_VERTEXAI` (switches to a different API) and
+`GOOGLE_GEMINI_BASE_URL`. So the base URL and API mode are always passed explicitly,
+and tests pin it.
 
 The CLI uses the same providers: `make ask Q=… ` / `make chat` with `HARNESS_LLM=claude|gemini|azure`
 (empty = first configured).

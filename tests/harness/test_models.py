@@ -4,8 +4,9 @@ import pytest
 
 from telco_mcp_lab.harness import models
 
-ALL_KEYS = ("CHAT_CLAUDE_API_KEY", "CHAT_GEMINI_API_KEY", "AZURE_OPENAI_ENDPOINT",
-            "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_DEPLOYMENT")  # fmt: skip
+ALL_KEYS = ("CHAT_CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "CHAT_GEMINI_API_KEY", "GEMINI_API_KEY",
+            "GOOGLE_API_KEY", "AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY",
+            "AZURE_OPENAI_DEPLOYMENT")  # fmt: skip
 
 
 @pytest.fixture

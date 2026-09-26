@@ -62,6 +62,15 @@ async def ask(fake: FakeGemini, prompt: str, mock_telco_factory):
 
 
 class TestSettings:
+    @pytest.mark.parametrize("name", ["GEMINI_API_KEY", "GOOGLE_API_KEY"])
+    def test_standard_key_names_accepted_chat_name_wins(self, monkeypatch, name):
+        for n in ("CHAT_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+            monkeypatch.delenv(n, raising=False)
+        monkeypatch.setenv(name, "standard-name-key-123")
+        assert GeminiSettings(_env_file=None).api_key.get_secret_value() == "standard-name-key-123"
+        monkeypatch.setenv("CHAT_GEMINI_API_KEY", KEY)
+        assert GeminiSettings(_env_file=None).api_key.get_secret_value() == KEY
+
     def test_google_environment_does_not_leak_in(self, monkeypatch):
         monkeypatch.setenv("GEMINI_API_KEY", "someone-elses-key-123")
         monkeypatch.setenv("GOOGLE_API_KEY", "someone-elses-key-456")
@@ -177,3 +186,15 @@ def test_history_from_another_provider_becomes_function_calls():
     assert (fc.name, fc.args, fc.id) == ("list_orders", {"limit": 2}, "toolu_1")
     fr = contents[2].parts[0].function_response
     assert contents[2].role == "tool" and fr.name == "list_orders" and fr.response == {"error": "R"}
+
+
+def test_empty_chat_key_line_does_not_hide_the_standard_key(tmp_path, monkeypatch):
+    """`make env-update` writes empty CHAT_GEMINI_API_KEY=; GEMINI_API_KEY must still work."""
+    for n in ("CHAT_GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(n, raising=False)
+    env = tmp_path / ".env"
+    env.write_text("CHAT_GEMINI_API_KEY=\nCHAT_GEMINI_MODEL=gemini-flash-latest   # a comment\n")
+    monkeypatch.setenv("GEMINI_API_KEY", "standard-name-key-123")
+    s = GeminiSettings(_env_file=env)
+    assert s.api_key.get_secret_value() == "standard-name-key-123"
+    assert s.model == "gemini-flash-latest"

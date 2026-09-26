@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -75,10 +75,19 @@ class ClaudeSettings(BaseSettings):
     otherwise send your key to a different endpoint. Everything here is explicit."""
 
     model_config = SettingsConfigDict(
-        env_prefix="CHAT_CLAUDE_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="CHAT_CLAUDE_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
+        env_ignore_empty=True,  # an empty CHAT_… line must not hide the standard key name
     )
 
-    api_key: SecretStr = Field(min_length=8)
+    # The standard name works too; CHAT_CLAUDE_API_KEY wins if both are set. (Safe: the
+    # risk was ANTHROPIC_BASE_URL redirecting the key, and base_url below is always explicit.)
+    api_key: SecretStr = Field(
+        min_length=8, validation_alias=AliasChoices("CHAT_CLAUDE_API_KEY", "ANTHROPIC_API_KEY")
+    )
     model: str = "claude-opus-5"
     max_tokens: int = Field(default=16000, ge=256, le=64000)  # non-streaming: keep < ~16k
     # low | medium | high | xhigh | max; None = the model's default (Opus 5: high).
@@ -114,10 +123,20 @@ class GeminiSettings(BaseSettings):
     (Vertex AI / Google Cloud credentials: not supported yet.)"""
 
     model_config = SettingsConfigDict(
-        env_prefix="CHAT_GEMINI_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="CHAT_GEMINI_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True,
+        env_ignore_empty=True,  # an empty CHAT_… line must not hide the standard key name
     )
 
-    api_key: SecretStr = Field(min_length=8)
+    # Standard names work too; CHAT_GEMINI_API_KEY wins. (Safe: base URL and API mode below
+    # are always explicit, so GOOGLE_GEMINI_BASE_URL / GOOGLE_GENAI_USE_VERTEXAI can't redirect.)
+    api_key: SecretStr = Field(
+        min_length=8,
+        validation_alias=AliasChoices("CHAT_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    )
     # An alias from the SDK's own documentation; pin a specific model ID your company allows.
     model: str = "gemini-flash-latest"
     base_url: str = "https://generativelanguage.googleapis.com/"
