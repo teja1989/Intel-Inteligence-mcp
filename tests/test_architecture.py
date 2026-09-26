@@ -22,6 +22,10 @@ SERVER_FILES = sorted((SRC / "mcp_server").rglob("*.py"))
 
 FORBIDDEN = (
     "openai",
+    "anthropic",  # model SDKs belong to hosts (the chat UI / harness), never the server
+    "google.genai",
+    "streamlit",
+    "telco_mcp_lab.chat_ui",
     "httpx2",  # only as an MCP *client* transport; the server's downstream client is httpx
     "telco_mcp_lab.harness",
     "telco_mcp_lab.mock_apis",

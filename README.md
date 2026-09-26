@@ -23,6 +23,7 @@ concept transfers to Java.
 | E1 | External-agent readiness: boundary + architecture test, generated tool catalog, integrator guide | ✅ done ([docs/06](docs/06-external-agents.md)) |
 | E2 (internal) | JWT validation at the server (token service JWKS, iss/aud/exp/lifetime), client registry, customer-context header, `/healthz` | ✅ done, dev token-service stand-in ([docs/07](docs/07-internal-jwt.md)); real token-service values to confirm |
 | E2 (external) | Signed customer handle (B2), step-up / scope challenges | parked (agent platform set aside) |
+| Chat UI | Streamlit chat with Claude / Gemini / Azure OpenAI, lab or shared-client identity, per-step view; Claude + Gemini harness adapters | ✅ done ([docs/10](docs/10-chat-ui.md)); live run with real keys pending |
 | Access | Production guard (G2), environment-tagged registry, developer connector (headersHelper + stdio bridge) for the shared lower-env client | ✅ done ([docs/08](docs/08-access-and-environments.md), [docs/09](docs/09-connect-dev-tools.md)); Azure AD sign-in for developers planned |
 | E3 | Rate limiting per client/customer, catalog versioning in `_meta` | planned |
 | 6 | Evaluation suite + description-rewording experiment | |
@@ -71,6 +72,7 @@ make token CLIENT=care-agent-internal SCOPES="read pii:read"   # token for Inspe
 make harness-check       # MCP ✅, Azure settings ✅, one tiny completion ✅
 make ask Q="what plans am I on?"      # full step trace; CALLER=bob to switch identity
 make chat                             # multi-turn
+make chat-ui                          # browser chat: Claude / Gemini / Azure (docs/10)
 ```
 
 Run `make` for all targets. Current list:
@@ -90,6 +92,7 @@ Run `make` for all targets. Current list:
 | `mcp-http` / `mcp-cluster` | Stateless Streamable HTTP server; 2 replicas + round-robin LB |
 | `dev-keys` / `token` / `mcp-http-jwt` / `demo-jwt` / `test-jwt` | E2 JWT mode: dev keys + tokens (`CLIENT=`, `SCOPES=`), server, walkthrough, tests |
 | `dev-token-service` / `connect-local` / `connect-check` / `test-connect` | Shared lower-env client: local token service, connector config, end-to-end check, tests (docs/09) |
+| `chat-ui` / `test-chat-ui` | Streamlit chat on 127.0.0.1:8501 (Claude / Gemini / Azure); its tests (docs/10) |
 | `demo-http` / `demo-injection` / `inspector-http` | HTTP walkthrough per caller; injection before/after; Inspector UI for HTTP |
 | `chaos-slow` / `chaos-fail` / `chaos-off` / `chaos-status` | Inject 5 s latency / 503s into the backend, or turn it off |
 | `test` / `test-fast` / `test-mocks` / `test-client` / `test-harness` / `test-protocol` / `test-security` | Full suite / no slow tests / mock gateway / MCP server / harness (offline) / real-transport protocol tests / security-marked |
@@ -180,6 +183,7 @@ src/telco_mcp_lab/
   devtools/token_issuer.py    DEV-ONLY token-service stand-in: RSA key, JWKS, mint tokens
   devtools/token_service.py   DEV-ONLY OAuth client-credentials endpoint + JWKS (:8095)
   connect/                    developer-side connector: headers (Claude Code) / bridge (stdio) / check
+  chat_ui/                    Streamlit chat UI (lab rig): app, per-turn session, safe markdown
 config/access.json      tenants → accounts, callers → tenant + scopes (non-secret)
 config/clients.json     JWT mode: registered client_ids, bound/customer_context, allowed scopes
 config/guardrails.json  host guardrails: input redact/block/warn, grounded-identifier output rule
@@ -275,6 +279,9 @@ Grows each phase. Full version and verification notes are in
 * [docs/09-connect-dev-tools.md](docs/09-connect-dev-tools.md): **connect VS Code / Claude
   Code / Inspector** to a lower env with the shared client: keychain, `headersHelper`, stdio
   bridge, local rehearsal, troubleshooting.
+* [docs/10-chat-ui.md](docs/10-chat-ui.md): **Streamlit chat UI** with Claude / Gemini /
+  Azure OpenAI: identities, per-step view, security guardrails (incl. the markdown
+  exfiltration test), provider settings.
 * [docs/TODO.md](docs/TODO.md): **parked work** (rate limits + Redis, abuse tripwires,
   customer verification, token helper for dev tools, onboarding, harness Claude adapter).
 * [docs/07-internal-jwt.md](docs/07-internal-jwt.md): **running internally**: JWT

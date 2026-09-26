@@ -181,7 +181,17 @@ connect-check: ## Token + tools/list through the connector, no secrets printed (
 test-connect: ## Run only the connector + dev token service tests
 	$(RUN) pytest tests/connect -v
 
-##@ LLM harness: Azure OpenAI as the MCP host (Phase 5; needs mocks + mcp-http running)
+##@ Chat UI: Streamlit, Claude / Gemini / Azure OpenAI (docs/10; needs mocks + mcp-http or mcp-http-jwt)
+.PHONY: chat-ui test-chat-ui
+chat-ui: ## Browser chat on http://127.0.0.1:8501: pick model + identity, see every tool call
+	$(RUN) streamlit run src/telco_mcp_lab/chat_ui/app.py --server.address 127.0.0.1 \
+	  --server.port 8501 --server.headless true --browser.gatherUsageStats false \
+	  --client.toolbarMode minimal
+
+test-chat-ui: ## Run only the chat UI + model adapter tests (no network, no spend)
+	$(RUN) pytest tests/chat_ui tests/harness/test_claude_adapter.py tests/harness/test_gemini_adapter.py -v
+
+##@ LLM harness CLI: Claude / Gemini / Azure OpenAI as the MCP host (needs mocks + mcp-http)
 .PHONY: harness-check ask chat
 harness-check: ## Verify MCP + Azure connectivity (prints actionable hints on failure)
 	$(RUN) python -m telco_mcp_lab.harness --check

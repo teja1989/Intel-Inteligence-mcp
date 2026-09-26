@@ -56,8 +56,11 @@
 
 ## Agent harness
 
-- [ ] **Claude adapter** (`HARNESS_LLM=anthropic`) next to Azure, keeping guardrails,
-  traces and evals. Must preserve thinking blocks across tool calls.
+- [x] **Claude + Gemini adapters** and the **Streamlit chat UI** (2026-09-26, docs/10).
+- [ ] First live run with real Claude / Gemini keys; pin a Gemini model ID your company allows.
+- [ ] Chat UI: y/N confirmation dialog for non-read-only tools (needed before Phase 4 writes);
+  streaming answers.
+- [ ] Gemini via Vertex AI (Google Cloud credentials) if that's the approved route.
 
 ## Confirm with other teams
 
