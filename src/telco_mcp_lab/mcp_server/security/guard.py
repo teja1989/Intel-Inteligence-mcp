@@ -32,7 +32,15 @@ def not_found(kind: str, example: str) -> str:
     )
 
 
+NO_CUSTOMER = (
+    "No customer is selected for this request, so no account data is available. "
+    "The agent application must identify the customer first; do not retry with an account_id."
+)
+
+
 def resolve_account(caller: CallerContext, account_id: str | None) -> str:
+    if not caller.account_ids:
+        raise AccessDenied(NO_CUSTOMER)
     if account_id is None:
         if len(caller.account_ids) == 1:
             return next(iter(caller.account_ids))
@@ -47,6 +55,8 @@ def resolve_account(caller: CallerContext, account_id: str | None) -> str:
 
 
 def ensure_owned(caller: CallerContext, resource: dict, kind: str, example: str) -> dict:
+    if not caller.account_ids:
+        raise AccessDenied(NO_CUSTOMER)
     if resource.get("account_id") not in caller.account_ids:
         raise AccessDenied(not_found(kind, example))
     return resource

@@ -15,9 +15,12 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from mcp.server.auth.middleware.auth_context import get_access_token
+
+if TYPE_CHECKING:
+    from telco_mcp_lab.mcp_server.security.clients import ClientRegistry
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +38,8 @@ class CallerContext:
     account_ids: frozenset[str]
     scopes: frozenset[str]
     via: str  # "http" | "stdio" | "in-process"
+    # customer_context clients only: the account(s) the agent app said it acts for (audited).
+    customer: str | None = None
 
     def has(self, scope: str) -> bool:
         return scope in self.scopes
@@ -76,7 +81,11 @@ class AccessModel:
         return CallerContext(c.caller_id, c.tenant, self.tenants[c.tenant], c.scopes, via)
 
 
-def resolve_caller(model: AccessModel, fallback: CallerContext | None) -> CallerContext | None:
+def resolve_caller(
+    model: AccessModel,
+    fallback: CallerContext | None,
+    registry: "ClientRegistry | None" = None,
+) -> CallerContext | None:
     """The caller for the current request, or None (which means deny everything).
 
     The bearer token always wins. `fallback` is only ever set for stdio and
@@ -84,6 +93,10 @@ def resolve_caller(model: AccessModel, fallback: CallerContext | None) -> Caller
     valid token can't fall through to a default identity.
     """
     token = get_access_token()
+    if token is not None and registry is not None:  # jwt mode: clients.json decides
+        from telco_mcp_lab.mcp_server.security.clients import current_customer_header
+
+        return registry.context_for(token.client_id, token.scopes, current_customer_header())
     if token is not None:
         caller_id = token.client_id
         if caller_id not in model.callers:  # verifier and model out of sync: fail closed

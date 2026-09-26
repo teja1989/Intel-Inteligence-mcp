@@ -23,10 +23,10 @@ as an untrusted third party** (see docs/06).
 | Idempotent writes via MCP | ⚠️ | backend only; Phase 4 parked |
 | **Identity & authorization** | | |
 | Resource-server shape, no token passthrough, 401 metadata pointer (RFC 9728) | ✅ | verified on the wire |
-| Real token validation (issuer, expiry, audience per RFC 8707) | ❌ → E2 | client-credentials tokens from the internal token service, validated at the gateway; app re-validation **OPEN** |
-| Customer context for multi-customer agents | ❌ → E2 | client credentials identify the *agent*, not the customer: model A (bound partner) / B (server-verified customer handle) |
+| Real token validation (issuer, expiry, audience per RFC 8707) | ✅ E2 (dev keys) | JWKS signature, iss, aud, exp, lifetime, alg allow-list; real token-service values to confirm (docs/07 §6) |
+| Customer context for multi-customer agents | ⚠️ E2 internal | header asserted by registered internal clients (docs/07 §4); external agents need a server-verified handle (B2), parked |
 | Scope challenges / step-up (`403 insufficient_scope` + scope hint) | ⚠️ → E2 | today hidden = unknown; keep hiding what a client can *never* get, challenge where step-up is possible |
-| Per-agent-client policy (allowed scopes/tools, PII) | ❌ → E2 | `config/clients.json`; effective scopes = granted ∩ allowed |
+| Per-agent-client policy (allowed scopes/tools, PII) | ✅ E2 | `config/clients.json`; effective scopes = granted ∩ allowed; unregistered = nothing |
 | Tenant isolation | ✅ | cross-tenant matrix, mutation-checked |
 | **Data protection & guardrails** | | |
 | PII minimisation/masking; IMSI/ICCID never returned | ✅ | |
@@ -36,7 +36,7 @@ as an untrusted third party** (see docs/06).
 | **Rate limiting** (tools spec: servers **MUST** rate-limit) | ❌ → E3 | per client + per customer; gateway vs server **OPEN** |
 | Provider content safety | ❓ | the external agent's responsibility; for internal agents, check the Azure deployment's filters |
 | **Operations** | | |
-| Audit (metadata only) | ✅ | add agent-client field (E2) |
+| Audit (metadata only) | ✅ | client_id (incl. unregistered) + customer since E2 |
 | Tracing/metrics: OpenTelemetry, `traceparent` in `_meta` (2026-07-28) | ❌ → Phase 7 | GenAI semantic conventions *(knowledge)* |
 | Timeouts, retry, circuit breaker | ✅ pattern | thresholds untuned |
 | Secrets management | ❌ | `.env` is lab-only; Vault / CredHub / Key Vault in production |

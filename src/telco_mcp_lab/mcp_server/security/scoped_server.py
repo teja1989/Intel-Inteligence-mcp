@@ -27,6 +27,7 @@ from contextvars import ContextVar
 from typing import Any
 
 from mcp.server import MCPServer
+from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.types import CallToolResult, InputRequiredResult
@@ -35,6 +36,7 @@ from pydantic import ValidationError
 
 from telco_mcp_lab.mcp_server.security.audit import audit_tool_call
 from telco_mcp_lab.mcp_server.security.caller import AccessModel, CallerContext, resolve_caller
+from telco_mcp_lab.mcp_server.security.clients import ClientRegistry
 from telco_mcp_lab.mcp_server.security.guard import AccessDenied
 
 _current_caller: ContextVar[CallerContext | None] = ContextVar("current_caller", default=None)
@@ -54,18 +56,20 @@ class ScopedMCPServer(MCPServer[Any]):
         *args: Any,
         access_model: AccessModel,
         fallback_caller: CallerContext | None = None,
+        client_registry: ClientRegistry | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self.access_model = access_model
         self.fallback_caller = fallback_caller
+        self.client_registry = client_registry
         self.tool_scopes: dict[str, str] = {}
 
     def require_scope(self, tool_name: str, scope: str) -> None:
         self.tool_scopes[tool_name] = scope
 
     def _caller(self) -> CallerContext | None:
-        return resolve_caller(self.access_model, self.fallback_caller)
+        return resolve_caller(self.access_model, self.fallback_caller, self.client_registry)
 
     def _allowed(self, caller: CallerContext | None, tool_name: str) -> bool:
         scope = self.tool_scopes.get(tool_name)  # a tool without a declared scope: nobody
@@ -107,12 +111,19 @@ class ScopedMCPServer(MCPServer[Any]):
         finally:
             audit_tool_call(
                 tool=name,
-                caller=caller.caller_id if caller else None,
+                caller=caller.caller_id if caller else _unresolved_client(),
                 tenant=caller.tenant if caller else None,
                 via=caller.via if caller else None,
+                customer=caller.customer if caller else None,
                 outcome=outcome,
                 started=started,
             )
+
+
+def _unresolved_client() -> str | None:
+    """Who presented a VALID token but got no caller (e.g. unregistered): keep it for forensics."""
+    token = get_access_token()
+    return token.client_id if token is not None else None
 
 
 def _find_cause[E: BaseException](exc: BaseException, kind: type[E]) -> E | None:

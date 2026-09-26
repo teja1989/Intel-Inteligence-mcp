@@ -636,7 +636,7 @@ wheels = [
 
 [[package]]
 name = "telco-mcp-lab"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
@@ -645,6 +645,7 @@ dependencies = [
     { name = "openai" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "python-dotenv" },
     { name = "uvicorn" },
 ]
@@ -665,6 +666,7 @@ requires-dist = [
     { name = "openai", specifier = "==3.19.2" },
     { name = "pydantic", specifier = "==2.13.5" },
     { name = "pydantic-settings", specifier = "==2.15.0" },
+    { name = "pyjwt", extras = ["crypto"], specifier = "==2.15.0" },
     { name = "python-dotenv", specifier = "==1.2.3" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]

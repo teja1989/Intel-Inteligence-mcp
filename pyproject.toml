@@ -1,6 +1,6 @@
 [project]
 name = "telco-mcp-lab"
-version = "0.2.0"
+version = "0.3.0"
 description = "Learning sandbox: a stateless MCP server over mock telecom APIs (mirrors a Spring AI production design)."
 requires-python = ">=3.12,<3.13"
 # Exact pins on purpose: this is a learning project, and we want everyone to see
@@ -12,6 +12,7 @@ dependencies = [
     "openai==3.19.2",
     "pydantic==2.13.5",
     "pydantic-settings==2.15.0",
+    "pyjwt[crypto]==2.15.0",
     "python-dotenv==1.2.3",
     "uvicorn==0.54.0",
 ]

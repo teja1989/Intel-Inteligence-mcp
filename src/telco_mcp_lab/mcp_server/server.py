@@ -17,12 +17,15 @@ from contextlib import asynccontextmanager
 
 from mcp.server.auth.provider import TokenVerifier
 from mcp.server.auth.settings import AuthSettings
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 
 from telco_mcp_lab import __version__
 from telco_mcp_lab.gateway_routes import GatewayRoutes
 from telco_mcp_lab.mcp_server.clients.gateway import GatewayClientSettings, StaticTokenProvider
 from telco_mcp_lab.mcp_server.clients.telco import TelcoApiClient
 from telco_mcp_lab.mcp_server.security.caller import AccessModel, CallerContext
+from telco_mcp_lab.mcp_server.security.clients import ClientRegistry
 from telco_mcp_lab.mcp_server.security.scoped_server import ScopedMCPServer
 from telco_mcp_lab.mcp_server.state import AppState
 from telco_mcp_lab.mcp_server.tools import account, lines, orders
@@ -52,6 +55,8 @@ def build_server(
     access_model: AccessModel,
     fallback_caller: CallerContext | None = None,
     token_verifier: TokenVerifier | None = None,
+    client_registry: ClientRegistry | None = None,
+    issuer_url: str = "https://auth.telco-mcp-lab.invalid",
     public_url: str = "http://127.0.0.1:8090/mcp",
     unsafe_raw_free_text: bool = False,
 ) -> ScopedMCPServer:
@@ -69,9 +74,9 @@ def build_server(
     auth = None
     if token_verifier is not None:
         auth = AuthSettings(
-            # No OAuth authorization server in the lab: tokens are static. The
-            # issuer URL is advertised in protected-resource metadata only.
-            issuer_url="https://auth.telco-mcp-lab.invalid",  # type: ignore[arg-type]
+            # Advertised in protected-resource metadata (RFC 9728) only. Static
+            # mode has no authorization server, hence the .invalid placeholder.
+            issuer_url=issuer_url,  # type: ignore[arg-type]
             resource_server_url=public_url,  # type: ignore[arg-type]
             validate_token_resource=False,  # our verifier binds tokens to this server itself
         )
@@ -86,7 +91,14 @@ def build_server(
         auth=auth,
         access_model=access_model,
         fallback_caller=fallback_caller,
+        client_registry=client_registry,
     )
+
+    @mcp.custom_route("/healthz", methods=["GET"], include_in_schema=False)
+    async def healthz(_: Request) -> Response:
+        # Liveness only: unauthenticated, so it reveals nothing (no version, no config).
+        return JSONResponse({"status": "ok"})
+
     for module in (account, lines, orders):
         module.register(mcp)
     return mcp

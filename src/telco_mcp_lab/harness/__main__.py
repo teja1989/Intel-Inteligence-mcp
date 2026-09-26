@@ -6,7 +6,9 @@
     uv run python -m telco_mcp_lab.harness --caller bob "list my lines"
 
 Needs: `make mocks` + `make mcp-http` running, and AZURE_OPENAI_* in .env.
-The harness logs in to the MCP server as HARNESS_CALLER using MCP_TOKEN_<CALLER>.
+The harness logs in to the MCP server as HARNESS_CALLER using MCP_TOKEN_<CALLER>,
+or, against a JWT-mode server, with HARNESS_BEARER_TOKEN (+ HARNESS_CUSTOMER_ACCOUNT_ID
+for customer_context clients; `--customer ACC-1001` overrides it).
 """
 
 import argparse
@@ -42,15 +44,23 @@ async def ask_human(tool: str, args: dict[str, Any]) -> bool:
     return answer.strip().lower() in ("y", "yes")
 
 
+def mcp_headers(hs: HarnessSettings) -> dict[str, str]:
+    if hs.bearer_token is not None:
+        token = hs.bearer_token.get_secret_value()
+    else:
+        token = ENV.get(f"MCP_TOKEN_{hs.caller.upper()}") or ""
+        if not token:
+            sys.exit(f"No MCP_TOKEN_{hs.caller.upper()} in .env (run: make env-tokens)")
+    headers = {"Authorization": f"Bearer {token}"}
+    if hs.customer_account_id:
+        headers[hs.customer_header] = hs.customer_account_id
+    return headers
+
+
 def mcp_client(hs: HarnessSettings) -> tuple[Client, httpx2.AsyncClient]:
-    token = ENV.get(f"MCP_TOKEN_{hs.caller.upper()}")
-    if not token:
-        sys.exit(f"No MCP_TOKEN_{hs.caller.upper()} in .env (run: make env-tokens)")
     # trust_env=False: the MCP server is local; only Azure traffic may use the
     # corporate proxy (HTTPS_PROXY), so don't let it capture localhost calls.
-    http = httpx2.AsyncClient(
-        headers={"Authorization": f"Bearer {token}"}, timeout=30, trust_env=False
-    )
+    http = httpx2.AsyncClient(headers=mcp_headers(hs), timeout=30, trust_env=False)
     return Client(streamable_http_client(hs.mcp_url, http_client=http), mode=hs.protocol), http
 
 
@@ -85,7 +95,10 @@ def diagnose(exc: BaseException) -> str:
 
 async def check(hs: HarnessSettings) -> int:
     ok = True
-    print(f"[1/3] MCP server {hs.mcp_url} as {hs.caller!r} …")
+    who = "bearer token (JWT)" if hs.bearer_token else repr(hs.caller)
+    if hs.customer_account_id:
+        who += f", customer {hs.customer_account_id}"
+    print(f"[1/3] MCP server {hs.mcp_url} as {who} …")
     client, http = mcp_client(hs)
     try:
         async with client as c:
@@ -177,10 +190,16 @@ def main() -> None:
     p.add_argument("--caller", help="override HARNESS_CALLER (alice, bob, carol, mallory)")
     p.add_argument("--mcp-url", help="override HARNESS_MCP_URL")
     p.add_argument("--protocol", choices=["auto", "legacy"])
+    p.add_argument("--customer", help="override HARNESS_CUSTOMER_ACCOUNT_ID (JWT mode)")
     a = p.parse_args()
     logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
-    overrides = {k: v for k, v in {"caller": a.caller, "mcp_url": a.mcp_url,
-                                   "protocol": a.protocol}.items() if v}  # fmt: skip
+    given = {
+        "caller": a.caller,
+        "mcp_url": a.mcp_url,
+        "customer_account_id": a.customer,
+        "protocol": a.protocol,
+    }
+    overrides = {k: v for k, v in given.items() if v}
     hs = HarnessSettings(**overrides)
     sys.exit(asyncio.run(check(hs) if a.check else chat(hs, a.prompt)))
 

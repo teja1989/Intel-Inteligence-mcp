@@ -52,8 +52,11 @@ behind a round-robin load balancer.
   access token carrying **scopes**, valid **2 hours**. Send it as
   `Authorization: Bearer …` on every request. Refresh before expiry; never
   embed secrets in prompts, tools or logs.
-* **Validation:** our API gateway validates the token. The server enforces
-  **scopes per tool** and the **customer boundary** (§4).
+* **Validation:** the **MCP server validates the JWT itself** (JWKS signature,
+  `iss`, `aud` = this server, `exp`, max 2 h lifetime; docs/07), whatever the
+  gateway also checks. Your `client_id` must be **registered** with us; your
+  effective scopes are what the token grants *and* your registration allows.
+  The server enforces **scopes per tool** and the **customer boundary** (§4).
 * **Errors:** `401` (missing/invalid/expired token; `WWW-Authenticate` names
   the problem) → get a new token. `403` → the token lacks a required scope.
   Don't retry; request the scope through onboarding.
@@ -65,9 +68,8 @@ behind a round-robin load balancer.
   | `pii:read` | unmasked phone numbers and holder names (restricted; justification required) |
   | `order:preview` / `order:submit` | write flow, **not yet available** (docs/91) |
 
-  **OPEN:** MCP-specific scope names (e.g. `mcp:read`) and **audience
-  restriction**, so an agent's token can't call our domain APIs directly and
-  bypass this server.
+  **Audience:** tokens are restricted to the MCP server (`aud`), so an agent's
+  token can't call the domain APIs directly. **OPEN:** final scope names.
 * We **never** forward your token to our backends. The server calls them with
   its own identity (MCP spec: token passthrough is forbidden).
 
@@ -157,11 +159,12 @@ published one; your agent asks for confirmation before any non-read-only tool.
 ## 11. Changelog
 
 * v0.1 (lab draft): initial guide; read tools only.
+* v0.2: server-side JWT validation and client registration (§3); internal customer-context header (docs/07 §4).
 
 ## 12. Open decisions (tracked)
 
-1. What the gateway forwards to the app (JWT vs headers), and whether the app is reachable only via the gateway.
-2. Token audience / MCP-only scopes.
+1. ~~What the gateway forwards~~: **closed**: Authorization is forwarded; the server validates the JWT (scope headers ignored). Still open: is the app reachable only via the gateway?
+2. ~~Token audience~~: **closed**: `aud` = MCP server. Scope names still open.
 3. Customer-context model per integration: **A** (bound partner) vs **B** (verification + signed handle); how customers are verified today.
 4. Whether the token service can issue user-bound tokens (authorization code / token exchange).
 5. Rate limits, and where they're enforced (gateway vs server).

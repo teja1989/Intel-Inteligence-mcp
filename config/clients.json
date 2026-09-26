@@ -1,0 +1,31 @@
+{
+  "_comment": "Client registry for JWT mode (MCP_AUTH_MODE=jwt). Non-secret. One entry per client_id your token service issues tokens to. Client IDs and token scope names below are PLACEHOLDERS: replace with your real ones. Tenants come from config/access.json.",
+
+  "scope_map": {
+    "_comment": "token scope string -> server permission. Token scopes not listed here are ignored (fail closed).",
+    "read": "read",
+    "pii:read": "pii:read",
+    "order:preview": "order:preview",
+    "order:submit": "order:submit"
+  },
+
+  "clients": {
+    "care-agent-internal": {
+      "mode": "customer_context",
+      "allowed_scopes": ["read", "pii:read"],
+      "description": "Internal care agent. Acts for ONE customer per request, given in the X-Customer-Account-Id header set by the agent application (never by the model)."
+    },
+    "northwind-portal": {
+      "mode": "bound",
+      "tenant": "tenant-b",
+      "allowed_scopes": ["read"],
+      "description": "Partner portal bound to its own accounts (tenant-b). Customer header is ignored."
+    },
+    "ops-dashboard": {
+      "mode": "bound",
+      "tenant": "tenant-a",
+      "allowed_scopes": ["read"],
+      "description": "Internal read-only dashboard for tenant-a."
+    }
+  }
+}

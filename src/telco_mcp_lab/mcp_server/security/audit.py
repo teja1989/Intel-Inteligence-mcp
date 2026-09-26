@@ -1,6 +1,7 @@
 """Audit log: one structured line per tool call. Metadata only, never payloads.
 
-Recorded: tool, caller, tenant, outcome, latency, transport.
+Recorded: tool, caller (the agent client_id over HTTP), tenant, customer (the
+account(s) a customer_context client said it acts for), outcome, latency, transport.
 Never recorded: arguments, results, tokens. Arguments can hold PII, and
 results hold customer data. An audit trail that copies them becomes the
 biggest PII store in the system.
@@ -30,6 +31,7 @@ def audit_tool_call(
     tenant: str | None,
     via: str | None,
     outcome: str,
+    customer: str | None = None,
     started: float,
 ) -> None:
     _audit.info(
@@ -40,6 +42,7 @@ def audit_tool_call(
                 "caller": caller,
                 "tenant": tenant,
                 "via": via,
+                "customer": customer,
                 "outcome": outcome,
                 "latency_ms": round((time.perf_counter() - started) * 1000, 1),
             },

@@ -3,7 +3,7 @@
 > Generated from the live tool definitions by `make catalog`. A test fails if
 > this file is out of date. This is the contract external agents integrate against.
 
-* Server version: `0.2.0`
+* Server version: `0.3.0`
 * Catalog hash: `sha256:cdaa8d6a0bb2be1b4cd19294630e17101ae52b79a2e52c996248195993c72dee`
 * Tools: 5
 

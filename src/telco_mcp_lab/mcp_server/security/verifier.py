@@ -1,11 +1,9 @@
-"""Bearer-token verification: THE seam for real authentication.
+"""Bearer-token verification, lab mode (MCP_AUTH_MODE=static): THE seam for authentication.
 
 `StaticTokenVerifier` implements the SDK's `TokenVerifier` protocol
-(`verify_token(token) -> AccessToken | None`). To go to production, write a
-`JwtTokenVerifier` with the same method: validate signature (JWKS), `iss`,
-`exp`, and `aud` (this MCP server's URL, RFC 8707), then map claims to
-`AccessToken(client_id=…, scopes=…, claims=…)`. Nothing else changes: not the
-tools, not the tenant guard, not the tests that use CallerContext.
+(`verify_token(token) -> AccessToken | None`). The real-token counterpart is
+`jwt_verifier.JwtTokenVerifier` (MCP_AUTH_MODE=jwt), with the same method.
+Nothing else changes: not the tools, not the tenant guard.
 
 Lab tokens live only in the environment / `.env` as `MCP_TOKEN_<CALLER>`
 (e.g. MCP_TOKEN_ALICE). They are held as SHA-256 digests, so the plaintext

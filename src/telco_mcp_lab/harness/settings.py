@@ -68,6 +68,18 @@ class HarnessSettings(BaseSettings):
 
     mcp_url: str = "http://127.0.0.1:8090/mcp"
     caller: str = "alice"  # uses MCP_TOKEN_<CALLER> from .env
+    # JWT mode: a token from the token service (or `make token`) replaces MCP_TOKEN_<CALLER>.
+    bearer_token: SecretStr | None = None
+    # JWT mode, customer_context clients: sent as X-Customer-Account-Id by THIS APP's code,
+    # i.e. the host decides which customer the conversation is about, never the model.
+    customer_account_id: str | None = Field(default=None, pattern=r"^ACC-\d{4}(,ACC-\d{4})*$")
+    customer_header: str = "X-Customer-Account-Id"
+
+    @field_validator("bearer_token", "customer_account_id", mode="before")
+    @classmethod
+    def _blank_is_unset(cls, v: object) -> object:  # blank .env lines mean "not set"
+        return None if isinstance(v, str) and not v.strip() else v
+
     protocol: Literal["auto", "legacy"] = "auto"
     max_steps: int = Field(default=8, ge=1, le=30)
     confirm_destructive: bool = True

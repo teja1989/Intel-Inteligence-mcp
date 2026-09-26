@@ -96,6 +96,30 @@ demo-injection: ## Before/after: the prompt-injection note as the model would se
 inspector-http: ## Inspector web UI; connect to http://127.0.0.1:8090/mcp with header Authorization: Bearer $$MCP_TOKEN_ALICE
 	$(INSPECTOR)
 
+##@ Internal run: JWT auth from the token service (E2; docs/07)
+.PHONY: dev-keys token mcp-http-jwt demo-jwt test-jwt
+DEV_JWT_ENV := MCP_AUTH_MODE=jwt MCP_JWT_ISSUER=https://token-service.dev.invalid \
+  MCP_JWT_AUDIENCE=http://127.0.0.1:8090/mcp MCP_JWT_JWKS_FILE=.data/dev-keys/jwks.json \
+  MCP_JWT_JWKS_URL=
+CLIENT ?= ops-dashboard
+SCOPES ?= read
+
+dev-keys: ## DEV ONLY: RSA key + JWKS in .data/dev-keys, standing in for the token service
+	$(RUN) python -m telco_mcp_lab.devtools.token_issuer keys
+
+token: ## DEV ONLY: print a 2 h token: make token CLIENT=care-agent-internal SCOPES="read pii:read"
+	@$(RUN) python -m telco_mcp_lab.devtools.token_issuer mint --client "$(CLIENT)" --scopes "$(SCOPES)"
+
+mcp-http-jwt: ## MCP server in JWT mode trusting the DEV keys (real config: set MCP_JWT_* in .env, run mcp-http)
+	@[ -f .data/dev-keys/jwks.json ] || { echo "run: make dev-keys"; exit 1; }
+	$(DEV_JWT_ENV) $(RUN) python -m telco_mcp_lab.mcp_server --transport http
+
+demo-jwt: ## Walk through JWT mode: bad tokens (401), bound vs customer-context clients, registry
+	$(RUN) python scripts/jwt_demo.py $${URL:+--url $$URL}
+
+test-jwt: ## Run only the JWT / client-registry / customer-context tests
+	$(RUN) pytest tests/mcp_server/test_jwt_auth.py -v
+
 ##@ LLM harness: Azure OpenAI as the MCP host (Phase 5; needs mocks + mcp-http running)
 .PHONY: harness-check ask chat
 harness-check: ## Verify MCP + Azure connectivity (prints actionable hints on failure)

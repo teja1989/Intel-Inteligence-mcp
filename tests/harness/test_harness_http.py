@@ -6,9 +6,11 @@ import httpx2
 import pytest
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
+from pydantic import ValidationError
 
-from telco_mcp_lab.harness.__main__ import diagnose
+from telco_mcp_lab.harness.__main__ import diagnose, mcp_headers
 from telco_mcp_lab.harness.agent import Agent
+from telco_mcp_lab.harness.settings import HarnessSettings
 from telco_mcp_lab.harness.trace import Tracer
 from tests.harness.test_agent import ScriptedModel, call, say
 from tests.mcp_server.test_http_protocol import auth, mcp_servers
@@ -69,3 +71,30 @@ class TestDiagnose:
         except RuntimeError as outer:
             msg = diagnose(outer)
         assert "Name or service not known" in msg and "DNS" in msg
+
+
+class TestMcpHeaders:
+    """JWT mode: the host app (not the model) sets the token and the customer header."""
+
+    def test_bearer_token_replaces_caller_token_and_customer_header_is_added(self):
+        hs = HarnessSettings(
+            _env_file=None, bearer_token="jwt-abc", customer_account_id="ACC-1001,ACC-1002"
+        )
+        assert mcp_headers(hs) == {
+            "Authorization": "Bearer jwt-abc",
+            "X-Customer-Account-Id": "ACC-1001,ACC-1002",
+        }
+
+    def test_no_customer_header_unless_configured(self):
+        assert set(mcp_headers(HarnessSettings(_env_file=None, bearer_token="t"))) == {
+            "Authorization"
+        }
+
+    @pytest.mark.parametrize("bad", ["ACC-1", "ACC-1001\r\nX-Evil: 1", "ACC-1001;ACC-1002"])
+    def test_customer_id_format_enforced(self, bad):
+        with pytest.raises(ValidationError):
+            HarnessSettings(_env_file=None, customer_account_id=bad)
+
+    def test_blank_env_values_mean_unset(self):
+        hs = HarnessSettings(_env_file=None, bearer_token="", customer_account_id=" ")
+        assert hs.bearer_token is None and hs.customer_account_id is None

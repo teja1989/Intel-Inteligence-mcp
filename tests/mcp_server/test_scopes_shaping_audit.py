@@ -144,8 +144,11 @@ class TestAudit:
             ("get_order_status", "tool_error"),
         ]
         for e in lines:
-            assert set(e) == {"event", "tool", "caller", "tenant", "via", "outcome", "latency_ms"}
+            assert set(e) == {
+                "event", "tool", "caller", "tenant", "via", "customer", "outcome", "latency_ms"
+            }  # fmt: skip
             assert e["caller"] == "alice" and e["tenant"] == "tenant-a"
+            assert e["customer"] is None  # only customer_context clients (JWT mode) have one
         raw = " ".join(r.message for r in caplog.records if r.name == AUDIT_LOGGER)
         for payload in ("ACC-", "ORD-", "Alex", "ignore previous", "+44"):
             assert payload not in raw
