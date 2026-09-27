@@ -1,3 +1,4 @@
+import json
 import socket
 import threading
 import time
@@ -11,11 +12,14 @@ import uvicorn
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from telco_mcp_lab.devtools.token_issuer import generate_key, jwks_for, mint
 from telco_mcp_lab.gateway_routes import GatewayRoutes
 from telco_mcp_lab.mcp_server.clients.gateway import GatewayClientSettings, StaticTokenProvider
 from telco_mcp_lab.mcp_server.clients.telco import TelcoApiClient
-from telco_mcp_lab.mcp_server.security.caller import AccessModel, CallerContext
+from telco_mcp_lab.mcp_server.http_app import build_http_app
+from telco_mcp_lab.mcp_server.security.clients import ClientContext, Scope
 from telco_mcp_lab.mcp_server.server import build_server
+from telco_mcp_lab.mcp_server.settings import JwtSettings, McpServerSettings
 from telco_mcp_lab.mock_apis.app import create_app
 from telco_mcp_lab.mock_apis.settings import MockApiSettings
 
@@ -92,21 +96,48 @@ def make_telco(transport=None, **kw) -> TelcoApiClient:
     )
 
 
-ACCESS_MODEL = AccessModel.load(Path(__file__).parents[1] / "config" / "access.json")
-# Test-only bearer tokens for the HTTP tests (>= 24 chars, unique).
-CALLER_TOKENS = {c: f"test-token-{c}-0123456789abcdef" for c in ACCESS_MODEL.callers}
-CALLER_ENV = {f"MCP_TOKEN_{c.upper()}": t for c, t in CALLER_TOKENS.items()}
+# JWT fixtures: HTTP always needs a JWT (from the dev token issuer's code, test keys).
+JWT_ISS = "https://token-service.test.invalid"
+JWT_AUD = "https://mcp.test.invalid/mcp"
+JWT_KEY = generate_key()
+TEST_CLIENTS = {
+    "scope_map": {"read": "read", "pii:read": "pii:read", "mcp.read": "read"},
+    "clients": {
+        "agent-a": {"allowed_scopes": ["read"]},
+        "care-agent": {"allowed_scopes": ["read", "pii:read"]},
+    },
+}
 
 
-def caller(caller_id: str) -> CallerContext:
-    return ACCESS_MODEL.context_for(caller_id, via="in-process")
+def jwt_token(client: str = "agent-a", scopes: str = "read", **kw) -> str:
+    kw.setdefault("issuer", JWT_ISS)
+    kw.setdefault("audience", JWT_AUD)
+    return mint(kw.pop("key", JWT_KEY), client_id=client, scopes=scopes, **kw)
 
 
-def server_as(caller_id: str, telco_factory, **kw):
-    """In-process server acting as one caller (the stdio-style fallback identity)."""
-    return build_server(
-        telco_factory, access_model=ACCESS_MODEL, fallback_caller=caller(caller_id), **kw
+def jwt_settings_in(tmp_path: Path) -> JwtSettings:
+    path = tmp_path / "jwks.json"
+    path.write_text(json.dumps(jwks_for(JWT_KEY)), encoding="utf-8")
+    return JwtSettings(_env_file=None, issuer=JWT_ISS, audience=JWT_AUD, jwks_file=path)
+
+
+def http_app_in(tmp_path: Path, telco_factory, *, clients: dict | None = None, **kw):
+    """The real HTTP app (JWT auth, test keys, TEST_CLIENTS registry)."""
+    path = tmp_path / "clients.json"
+    path.write_text(json.dumps(clients or TEST_CLIENTS), encoding="utf-8")
+    settings = McpServerSettings(_env_file=None, clients_config=path, public_url=JWT_AUD)
+    return build_http_app(
+        settings, jwt_settings=jwt_settings_in(tmp_path), telco_factory=telco_factory, **kw
     )
+
+
+def client_ctx(*scopes: str, client_id: str = "test") -> ClientContext:
+    return ClientContext(client_id, frozenset(scopes or (Scope.READ,)), "in-process")
+
+
+def server_with(telco_factory, *scopes: str, **kw):
+    """In-process server as ONE local client (the stdio-style fallback), default scope read."""
+    return build_server(telco_factory, fallback_client=client_ctx(*scopes), **kw)
 
 
 @pytest.fixture
@@ -116,8 +147,8 @@ def mock_telco_factory(app):
 
 @pytest.fixture
 def mcp_server_on_mock(mock_telco_factory):
-    """MCP server (as alice, tenant-a) whose gateway calls go into the in-process mock app."""
-    return server_as("alice", mock_telco_factory)
+    """MCP server (scope read) whose gateway calls go into the in-process mock app."""
+    return server_with(mock_telco_factory)
 
 
 class LiveServer:

@@ -49,7 +49,6 @@ TELCO_MCP_CLIENT_ID=lowerenv-shared                                # the real sh
 TELCO_MCP_SECRET_COMMAND=security find-generic-password -s telco-mcp-lowerenv -w
 # Linux: TELCO_MCP_SECRET_COMMAND=secret-tool lookup service telco-mcp-lowerenv
 TELCO_MCP_CLIENT_AUTH=basic          # or post: match the token service (docs/07 §6)
-TELCO_MCP_CUSTOMER=ACC-1001          # synthetic test customer, set by YOU, never by a model
 # TELCO_MCP_SCOPE=read               # only if the token service needs it
 # TELCO_MCP_CA_BUNDLE=/path/corp-root.pem   # if TLS is intercepted
 ```
@@ -110,7 +109,7 @@ make dev-keys            # once
 make env-tokens          # adds DEV_TOKEN_SERVICE_CLIENT_SECRET to .env if missing
 make connect-local       # writes .data/connect/local.env for the local stack
 make mocks               # terminal 1
-make mcp-http-jwt        # terminal 2 (JWT mode; lowerenv-shared is tagged local/dev/test)
+make mcp-http            # terminal 2 (JWT, dev keys; lowerenv-shared is tagged local/dev/test)
 make dev-token-service   # terminal 3 (stand-in token service on :8095)
 make connect-check       # terminal 4 → token ok + MCP ok
 ```
@@ -125,8 +124,8 @@ secret from `.env`. Real lower environments use the keychain.
   issuer and audience, and production refuses to start with it in its registry (G2).
 * The secret lives in the keychain. Never in `mcp.json`, `.mcp.json`, `.env` files in repos,
   chat, tickets or prompts.
-* The customer comes from your config (`TELCO_MCP_CUSTOMER` / `--customer`), never from
-  the model. Use synthetic test customers.
+* Ask about synthetic accounts only (ACC-1001, ACC-1002, ACC-2001). The account ID is a
+  tool argument; any account is readable with `read` (docs/08 §1.6).
 * Suspect the secret leaked? Tell the owner so they can rotate (docs/08 §5).
 
 ## 7. Troubleshooting
@@ -141,4 +140,4 @@ secret from `.env`. Real lower environments use the keychain.
 | Connected, but **no tools** / "Unknown tool" | Token accepted, but `lowerenv-shared` isn't in this server's registry for this environment (or lacks `read`) |
 | Claude Code: `headersHelper not run … trust` | Start `claude` in that folder and accept the trust dialog once |
 | `ERR_PROXY_TUNNEL` / proxy 403 to an internal host | Add the host to **both** `NO_PROXY` and `no_proxy` |
-| "No customer is selected for this request" | Set `TELCO_MCP_CUSTOMER` (or `--customer ACC-1001`) |
+| The model asks for an account ID | Expected: every account tool needs one. Give it, e.g. "ACC-1001" |

@@ -18,7 +18,7 @@ from telco_mcp_lab.devtools.token_issuer import DEV_ISSUER, jwks_for
 from telco_mcp_lab.devtools.token_service import create_app as create_token_service
 from telco_mcp_lab.mcp_server.http_app import build_http_app
 from telco_mcp_lab.mcp_server.settings import JwtSettings, McpServerSettings
-from tests.conftest import ACCESS_MODEL, LiveServer, make_telco
+from tests.conftest import LiveServer, make_telco
 from tests.connect.test_token_and_service import KEY, SECRET, settings
 
 META = {
@@ -64,11 +64,10 @@ def call(name: str, args: dict, i: int = 1) -> dict:
 
 class TestHeaders:
     def test_modern_tools_call_carries_the_protocol_headers(self):
-        b, _, _ = make_bridge(lambda r: httpx.Response(200), customer="ACC-1001")
-        h = b.headers_for(call("get_account_summary", {}))
+        b, _, _ = make_bridge(lambda r: httpx.Response(200))
+        h = b.headers_for(call("get_account_summary", {"account_id": "ACC-1001"}))
         assert h["mcp-protocol-version"] == "2026-07-28"
         assert h["mcp-method"] == "tools/call" and h["mcp-name"] == "get_account_summary"
-        assert h["X-Customer-Account-Id"] == "ACC-1001"
         assert "authorization" not in {k.lower() for k in h}  # added per attempt, not here
 
     async def test_legacy_version_learned_from_initialize(self):
@@ -161,13 +160,12 @@ def stack(live_gateway, tmp_path):
     (tmp_path / "jwks.json").write_text(json.dumps(jwks_for(KEY)))
     (tmp_path / "clients.json").write_text(json.dumps({
         "scope_map": {"read": "read"},
-        "clients": {"lowerenv-shared": {"mode": "customer_context", "allowed_scopes": ["read"],
+        "clients": {"lowerenv-shared": {"allowed_scopes": ["read"],
                                         "environments": ["local", "dev", "test"]}},
     }))  # fmt: skip
     mcp_app = build_http_app(
-        McpServerSettings(_env_file=None, environment="dev", auth_mode="jwt",
+        McpServerSettings(_env_file=None, environment="dev",
                           clients_config=tmp_path / "clients.json", public_url=AUD),
-        ACCESS_MODEL, {},
         jwt_settings=JwtSettings(_env_file=None, issuer=DEV_ISSUER, audience=AUD,
                                  jwks_file=tmp_path / "jwks.json"),
         telco_factory=lambda: make_telco(base_url=live_gateway),
@@ -193,13 +191,13 @@ def bridge_params(env: dict[str, str], **extra: str) -> StdioServerParameters:
 @pytest.mark.protocol
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
 async def test_sdk_client_through_the_bridge(stack, mode):
-    async with Client(bridge_params(stack, TELCO_MCP_CUSTOMER="ACC-1001"), mode=mode) as c:
+    async with Client(bridge_params(stack), mode=mode) as c:
         tools = {t.name for t in (await c.list_tools()).tools}
         assert "get_account_summary" in tools
-        ok = await c.call_tool("get_account_summary", {})
+        ok = await c.call_tool("get_account_summary", {"account_id": "ACC-1001"})
         assert not ok.is_error and ok.structured_content["account_id"] == "ACC-1001"
-        other = await c.call_tool("get_account_summary", {"account_id": "ACC-2001"})
-        assert other.is_error  # the customer header bounds the data, not the model
+        bad = await c.call_tool("get_account_summary", {"account_id": "ACC-1001/../x"})
+        assert bad.is_error  # schema checks still apply end to end
 
 
 @pytest.mark.protocol
@@ -207,10 +205,10 @@ async def test_secret_from_keychain_style_command(stack):
     cmd = f"{sys.executable} -c \"print('{SECRET}')\""
     params = StdioServerParameters(
         command=sys.executable, args=["-m", "telco_mcp_lab.connect", "bridge"],
-        env={**stack, "TELCO_MCP_SECRET_COMMAND": cmd, "TELCO_MCP_CUSTOMER": "ACC-2001"},
+        env={**stack, "TELCO_MCP_SECRET_COMMAND": cmd},
     )  # fmt: skip
     async with Client(params) as c:
-        r = await c.call_tool("get_account_summary", {})
+        r = await c.call_tool("get_account_summary", {"account_id": "ACC-2001"})
         assert r.structured_content["account_id"] == "ACC-2001"
 
 
@@ -224,10 +222,10 @@ def cli(command: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
 
 @pytest.mark.protocol
 def test_headers_command_prints_json_for_claude_code(stack):
-    r = cli("headers", {**stack, "TELCO_MCP_CUSTOMER": "ACC-1001"})
+    r = cli("headers", stack)
     assert r.returncode == 0, r.stderr
     h = json.loads(r.stdout)
-    assert h["Authorization"].startswith("Bearer ") and h["X-Customer-Account-Id"] == "ACC-1001"
+    assert set(h) == {"Authorization"} and h["Authorization"].startswith("Bearer ")
 
 
 @pytest.mark.protocol

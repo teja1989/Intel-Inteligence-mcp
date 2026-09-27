@@ -1,13 +1,13 @@
 """Account tools.
 
-`get_account_summary` is deliberately *task-oriented*: it answers "what does my
+`get_account_summary` is deliberately *task-oriented*: it answers "what does this
 account look like?" in one call by combining the Account API and the
 Subscription API. It is not a 1:1 wrapper of GET /account/{id}. Fewer,
 higher-level tools mean fewer wrong tool choices and fewer round trips for the
 model.
 
 Output is an explicit allow-list (`AccountSummary`). Email, address and the
-contact MSISDN are never copied. The holder name is masked unless the caller
+contact MSISDN are never copied. The holder name is masked unless the client
 has `pii:read`. The free-text notes go through the neutraliser.
 """
 
@@ -15,12 +15,13 @@ from collections import Counter
 from typing import Literal
 
 from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from telco_mcp_lab.mcp_server.security.caller import Scope
-from telco_mcp_lab.mcp_server.security.guard import ensure_owned, resolve_account
-from telco_mcp_lab.mcp_server.security.scoped_server import ScopedMCPServer, current_caller
+from telco_mcp_lab.mcp_server.errors.tool_errors import not_found
+from telco_mcp_lab.mcp_server.security.clients import Scope
+from telco_mcp_lab.mcp_server.security.scoped_server import ScopedMCPServer, current_client
 from telco_mcp_lab.mcp_server.shaping.free_text import ShapedText, shape_free_text
 from telco_mcp_lab.mcp_server.shaping.pii import PiiPolicy
 from telco_mcp_lab.mcp_server.state import app_state
@@ -40,7 +41,7 @@ class AccountSummary(BaseModel):
     account_id: str
     account_type: Literal["CONSUMER", "BUSINESS"]
     status: str
-    holder_name: str = Field(description="Account holder; masked unless the caller may see PII.")
+    holder_name: str = Field(description="Account holder; masked unless the client may see PII.")
     customer_since: str = Field(description="Date the account was opened (YYYY-MM-DD).")
     subscriptions: SubscriptionCounts
     active_plans: list[str] = Field(description="Distinct plan names on ACTIVE lines.")
@@ -52,7 +53,7 @@ class AccountSummary(BaseModel):
 
 
 DESCRIPTION = """\
-Get a one-call overview of the user's customer account: status and type, the
+Get a one-call overview of a customer account: status and type, the
 holder's name, when it was opened, how many mobile lines (subscriptions) it
 has in each status, which plans the active lines are on, and account notes.
 
@@ -64,7 +65,7 @@ Do NOT use this for the list of individual lines or phone numbers (use
 list_subscriptions), SIM/roaming/add-on details of one line (use
 get_service_details), or orders (use get_order_status / list_orders).
 
-account_id is optional; omit it unless the user has several accounts.
+Needs the account_id (e.g. ACC-1001). If the user hasn't given it, ask for it.
 """
 
 
@@ -77,19 +78,18 @@ def register(mcp: ScopedMCPServer) -> None:
         description=DESCRIPTION,
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
     )
-    async def get_account_summary(ctx: Context, account_id: AccountIdArg = None) -> AccountSummary:
-        caller = current_caller()
-        account_id = resolve_account(caller, account_id)
+    async def get_account_summary(ctx: Context, account_id: AccountIdArg) -> AccountSummary:
         state = app_state(ctx)
         async with gateway_errors():
             account = await state.telco.get_account(account_id)
-            ensure_owned(caller, account, "account", "ACC-1001")  # check BEFORE the 2nd call
+            if account.get("account_id") != account_id:  # backend inconsistency: don't trust it
+                raise ToolError(not_found("account", "ACC-1001"))
             subs = await state.telco.all_subscriptions(account_id)
         # Belt and braces, like the list tools: never count another account's rows,
         # even if the backend ignored the filter.
         subs = [s for s in subs if s.get("account_id") == account_id]
 
-        pii = PiiPolicy(caller)
+        pii = PiiPolicy(current_client())
         by_status = Counter(s["status"] for s in subs)
         return AccountSummary(
             account_id=account["account_id"],

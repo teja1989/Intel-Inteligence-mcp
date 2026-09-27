@@ -17,14 +17,13 @@ from telco_mcp_lab.mcp_server.security.environment import (
     production_problems,
 )
 from telco_mcp_lab.mcp_server.settings import JwtSettings, McpServerSettings
-from tests.conftest import ACCESS_MODEL, make_telco
+from tests.conftest import make_telco
 
 pytestmark = pytest.mark.security
 
 REPO = Path(__file__).parents[2]
 PROD = ProductionFacts(
     transport="http",
-    auth_mode="jwt",
     public_url="https://mcp.corp-telco.com/mcp",
     unsafe_raw_free_text=False,
     jwt_issuer="https://token.corp-telco.com",
@@ -45,7 +44,6 @@ class TestRules:
         "changes, expected",
         [
             ({"transport": "stdio"}, "stdio"),
-            ({"auth_mode": "static"}, "MCP_AUTH_MODE"),
             ({"legacy_sessions": True}, "legacy-sessions"),
             ({"unsafe_raw_free_text": True}, "UNSAFE_RAW"),
             ({"public_url": "http://mcp.corp-telco.com/mcp"}, "MCP_PUBLIC_URL must be https"),
@@ -63,14 +61,14 @@ class TestRules:
         assert any(expected in p for p in problems), problems
 
     def test_all_violations_reported_at_once(self):
-        bad = with_(auth_mode="static", transport="stdio", unsafe_raw_free_text=True)
+        bad = with_(legacy_sessions=True, transport="stdio", unsafe_raw_free_text=True)
         with pytest.raises(UnsafeProductionConfig) as exc:
             enforce("production", bad)
         assert len(exc.value.problems) >= 3
 
     @pytest.mark.parametrize("environment", ["local", "dev", "test"])
     def test_lower_environments_are_not_blocked(self, environment):
-        enforce(environment, with_(auth_mode="static", transport="stdio"))
+        enforce(environment, with_(unsafe_raw_free_text=True, transport="stdio"))
 
     def test_non_url_issuer_and_audience_are_allowed(self):
         """e.g. Azure AD audiences like api://… or plain issuer names."""
@@ -84,34 +82,34 @@ def registry_file(tmp_path, clients: dict) -> Path:
     return path
 
 
-SHARED = {"mode": "customer_context", "allowed_scopes": ["read"], "environments": ["dev", "test"]}
-PROD_APP = {"mode": "customer_context", "allowed_scopes": ["read"], "environments": ["production"]}
-UNTAGGED = {"mode": "bound", "tenant": "tenant-a", "allowed_scopes": ["read"]}
+SHARED = {"allowed_scopes": ["read"], "environments": ["dev", "test"]}
+PROD_APP = {"allowed_scopes": ["read"], "environments": ["production"]}
+UNTAGGED = {"allowed_scopes": ["read"]}
 
 
 class TestRegistryTags:
     def test_lower_env_client_loaded_where_tagged(self, tmp_path):
-        r = ClientRegistry.load(registry_file(tmp_path, {"shared": SHARED}), ACCESS_MODEL, "dev")
-        assert "shared" in r.clients and r.problems == []
+        r = ClientRegistry.load(registry_file(tmp_path, {"shared": SHARED}), "dev")
+        assert "shared" in r.allowed and r.problems == []
 
     def test_lower_env_client_skipped_elsewhere(self, tmp_path):
-        r = ClientRegistry.load(registry_file(tmp_path, {"shared": SHARED}), ACCESS_MODEL, "local")
-        assert "shared" not in r.clients
+        r = ClientRegistry.load(registry_file(tmp_path, {"shared": SHARED}), "local")
+        assert "shared" not in r.allowed
 
     def test_production_reports_lower_env_and_untagged_entries(self, tmp_path):
         path = registry_file(tmp_path, {"shared": SHARED, "old": UNTAGGED, "app": PROD_APP})
-        r = ClientRegistry.load(path, ACCESS_MODEL, "production")
-        assert set(r.clients) == {"app"}
+        r = ClientRegistry.load(path, "production")
+        assert set(r.allowed) == {"app"}
         assert any("'shared'" in p for p in r.problems)
         assert any("'old'" in p for p in r.problems)
 
     def test_unknown_environment_tag_rejected(self, tmp_path):
         bad = {**SHARED, "environments": ["staging"]}
         with pytest.raises(ValueError, match="bad environments"):
-            ClientRegistry.load(registry_file(tmp_path, {"x": bad}), ACCESS_MODEL, "dev")
+            ClientRegistry.load(registry_file(tmp_path, {"x": bad}), "dev")
 
     def test_repo_sample_registry_would_not_pass_production(self):
-        r = ClientRegistry.load(REPO / "config" / "clients.json", ACCESS_MODEL, "production")
+        r = ClientRegistry.load(REPO / "config" / "clients.json", "production")
         assert r.problems  # the lab sample is not a production registry
 
 
@@ -122,14 +120,13 @@ class TestWiring:
         jwks.write_text('{"keys": []}')
         s = McpServerSettings(
             _env_file=None,
-            auth_mode="jwt",
             clients_config=registry_file(tmp_path, clients),
             **{"environment": "production", "public_url": PROD.public_url, **settings},
         )
         js_kw = {"jwks_url": PROD.jwt_jwks_url} if "jwks_file" not in settings else {}
         js = JwtSettings(_env_file=None, issuer=PROD.jwt_issuer, audience=PROD.jwt_audience,
                          **js_kw)  # fmt: skip
-        return build_http_app(s, ACCESS_MODEL, {}, jwt_settings=js, telco_factory=make_telco)
+        return build_http_app(s, jwt_settings=js, telco_factory=make_telco)
 
     def test_http_app_builds_with_production_config(self, tmp_path):
         self._app(tmp_path, {"app": PROD_APP})
@@ -142,10 +139,17 @@ class TestWiring:
         with pytest.raises(UnsafeProductionConfig, match="MCP_PUBLIC_URL"):
             self._app(tmp_path, {"app": PROD_APP}, public_url="http://127.0.0.1:8090/mcp")
 
-    def test_static_lab_tokens_refused_in_production(self):
-        s = McpServerSettings(_env_file=None, environment="production", public_url=PROD.public_url)
-        with pytest.raises(UnsafeProductionConfig, match="MCP_AUTH_MODE"):
-            build_http_app(s, ACCESS_MODEL, {}, telco_factory=make_telco)
+    def test_dev_jwks_file_refused_in_production(self, tmp_path):
+        jwks = tmp_path / "dev-jwks.json"
+        jwks.write_text('{"keys": []}')
+        s = McpServerSettings(
+            _env_file=None, environment="production", public_url=PROD.public_url,
+            clients_config=registry_file(tmp_path, {"app": PROD_APP}),
+        )  # fmt: skip
+        js = JwtSettings(_env_file=None, issuer=PROD.jwt_issuer, audience=PROD.jwt_audience,
+                         jwks_file=jwks)  # fmt: skip
+        with pytest.raises(UnsafeProductionConfig, match="MCP_JWT_JWKS_FILE"):
+            build_http_app(s, jwt_settings=js, telco_factory=make_telco)
 
     def test_stdio_process_exits_in_production(self):
         env = {**os.environ, "MCP_ENVIRONMENT": "production"}

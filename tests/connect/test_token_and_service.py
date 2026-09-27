@@ -183,8 +183,8 @@ class TestSettings:
             settings(client_secret=None)
 
     def test_blank_values_mean_unset(self):
-        s = settings(secret_command=" ", customer="", scope="")
-        assert s.secret_command is None and s.customer is None and s.scope is None
+        s = settings(secret_command=" ", scope="")
+        assert s.secret_command is None and s.scope is None
 
     def test_config_errors_never_echo_values(self, tmp_path, monkeypatch):
         cfg = tmp_path / "lower.env"
@@ -193,6 +193,6 @@ class TestSettings:
                        "TELCO_MCP_CLIENT_ID=lowerenv-shared\n")  # fmt: skip
         monkeypatch.setenv("TELCO_MCP_CLIENT_SECRET", SECRET)
         with pytest.raises(SystemExit) as exc:
-            load_settings(cfg, None)
+            load_settings(cfg)
         assert "url" in str(exc.value) and SECRET not in str(exc.value)
         assert "mcp.lowerenv.corp" not in str(exc.value)

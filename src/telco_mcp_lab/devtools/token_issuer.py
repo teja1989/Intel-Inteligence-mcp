@@ -1,6 +1,6 @@
 """A LOCAL stand-in for the internal token service: RSA keys, a JWKS file, and minted tokens.
 
-DEV ONLY. It exists so MCP_AUTH_MODE=jwt can be run and tested without the real
+DEV ONLY. It exists so the HTTP transport (JWT only) can be run and tested without the real
 token service. The real one owns the private key; this server only ever needs
 the public JWKS.
 

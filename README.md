@@ -16,16 +16,16 @@ concept transfers to Java.
 |---|---|---|
 | 1 | Concepts primer, project skeleton, mock gateway + telecom APIs + tests | ✅ done |
 | 2 | First tool over **stdio**, MCP Inspector, JSON-RPC walkthrough | ✅ done |
-| 3 | Stateless **Streamable HTTP**, read tools, CallerContext, tenant guard, masking, resilience, audit | ✅ done |
+| 3 | Stateless **Streamable HTTP**, read tools, client + scopes, strict IDs, masking, resilience, audit | ✅ done (identity simplified 2026-09-27) |
 | 4 | Order flow (preview → answers → submit), separate scopes, idempotency via MCP | ⏸ parked: awaiting real preview/submit API contracts ([docs/91](docs/91-backlog-orders-preview-submit.md)) |
 | 5 | Azure OpenAI harness with step-by-step tool-call trace | ✅ done (offline-tested; run `make harness-check` on your machine) |
 | 5b | Prompt layers (routing / server instructions / agent prompt) and host guardrails | ✅ done ([docs/05b](docs/05b-prompts-and-guardrails.md)) |
 | E1 | External-agent readiness: boundary + architecture test, generated tool catalog, integrator guide | ✅ done ([docs/06](docs/06-external-agents.md)) |
-| E2 (internal) | JWT validation at the server (token service JWKS, iss/aud/exp/lifetime), client registry, customer-context header, `/healthz` | ✅ done, dev token-service stand-in ([docs/07](docs/07-internal-jwt.md)); real token-service values to confirm |
+| E2 (internal) | JWT validation at the server (token service JWKS, iss/aud/exp/lifetime), client registry, `/healthz` | ✅ done, dev token-service stand-in ([docs/07](docs/07-internal-jwt.md)); real token-service values to confirm |
 | E2 (external) | Signed customer handle (B2), step-up / scope challenges | parked (agent platform set aside) |
 | Models | Harness adapters for Claude, Gemini and Azure OpenAI; `make model-check` (one real model end to end). Manual testing through Claude Code / Antigravity as MCP hosts | ✅ done ([docs/05](docs/05-llm-harness.md) §Providers) |
 | Access | Production guard (G2), environment-tagged registry, developer connector (headersHelper + stdio bridge) for the shared lower-env client | ✅ done ([docs/08](docs/08-access-and-environments.md), [docs/09](docs/09-connect-dev-tools.md)); Azure AD sign-in for developers planned |
-| E3 | Rate limiting per client/customer, catalog versioning in `_meta` | planned |
+| E3 | Rate limiting per client, distinct-account tripwires, catalog versioning in `_meta` | planned |
 | 6 | Evaluation suite + description-rewording experiment | |
 | 7 | Wrap-up: Spring AI mapping, pitfalls, production checklist | |
 
@@ -56,24 +56,20 @@ make smoke     # real-HTTP walkthrough: bearer auth, reads, draft, idempotent su
 make demo-stdio          # MCP client ↔ server over stdio, full JSON-RPC wire printed
 make inspector           # MCP Inspector web UI against our server
 
-# Phase 3: HTTP (existing .env from earlier phases? run `make env-tokens` once)
-make mcp-http            # terminal 2 instead: stateless HTTP on :8090 (bearer auth)
-make demo-http           # 4 callers: scopes, tenant guard, masking
+# HTTP: always JWT. Locally the token service is a stand-in (real values: docs/07 §5-6)
+make dev-keys            # once: dev RSA key + JWKS in .data/dev-keys
+make mcp-http            # terminal 2 instead: stateless HTTP on :8090, trusting the dev keys
+make demo-http           # refused tokens, clients, scopes, masking, strict IDs
+make token CLIENT=care-agent-internal SCOPES="read pii:read"   # token for Inspector/curl
 make demo-injection      # the injected note, before vs after shaping
 make mcp-cluster         # 2 replicas + round-robin LB on :8099 (LEGACY=1 breaks legacy clients)
 
-# E2: internal run with JWT auth (dev token-service stand-in; real values: docs/07 §5-6)
-make dev-keys            # once: dev RSA key + JWKS in .data/dev-keys
-make mcp-http-jwt        # terminal 2 instead: JWT mode
-make demo-jwt            # refused tokens, bound vs customer-context clients, registry
-make token CLIENT=care-agent-internal SCOPES="read pii:read"   # token for Inspector/curl
-
-# Phase 5: Azure OpenAI as the host (fill AZURE_OPENAI_* in .env; see docs/05)
-make harness-check       # MCP ✅, Azure settings ✅, one tiny completion ✅
-make ask Q="what plans am I on?"      # full step trace; CALLER=bob to switch identity
+# Harness: a real model as the host (a key in .env: CHAT_CLAUDE_*, CHAT_GEMINI_* or AZURE_OPENAI_*)
+make env-update                       # existing .env? add new settings, list retired ones
+make harness-check                    # MCP ✅ (stdio: starts the server itself), model ✅
+make ask Q="what plans are on ACC-1001?"   # full step trace (TRANSPORT=http for make mcp-http)
 make chat                             # multi-turn
-make env-update                       # existing .env? add the new settings (never overwrites)
-make model-check LLM=gemini           # one real model end to end: reply, tool call, follow-up, isolation
+make model-check LLM=gemini           # one real model end to end: reply, tool call, follow-up, tool error
 ```
 
 Run `make` for all targets. Current list:
@@ -87,14 +83,14 @@ Run `make` for all targets. Current list:
 | `demo-stdio` / `demo-stdio-legacy` | Python MCP client over stdio (2026-07-28 / legacy handshake) with wire trace |
 | `inspector` / `inspector-cli-list` / `inspector-cli-call` | MCP Inspector 2.8.0, web or headless (`ACCOUNT=`, `ERA=`) |
 | `traces` | List captured JSON-RPC traces (`.data/traces`) |
-| `env-tokens` | Add the Phase 3 caller tokens to an existing `.env` |
+| `env-tokens` | Add a missing dev token service secret to an existing `.env` |
 | `catalog` | Regenerate `docs/tool-catalog.md` from the live tool definitions (drift-tested) |
-| `harness-check` / `ask` / `chat` | Azure OpenAI harness: connectivity check; one question; interactive (`CALLER=`) |
-| `mcp-http` / `mcp-cluster` | Stateless Streamable HTTP server; 2 replicas + round-robin LB |
-| `dev-keys` / `token` / `mcp-http-jwt` / `demo-jwt` / `test-jwt` | E2 JWT mode: dev keys + tokens (`CLIENT=`, `SCOPES=`), server, walkthrough, tests |
+| `harness-check` / `ask` / `chat` | Harness (Claude / Gemini / Azure): connectivity check; one question; interactive (`LLM=`, `TRANSPORT=`) |
+| `mcp-http` / `mcp-cluster` | Stateless Streamable HTTP server (JWT; dev keys unless `MCP_JWT_*` set); 2 replicas + round-robin LB |
+| `dev-keys` / `token` / `test-jwt` | Dev keys + tokens (`CLIENT=`, `SCOPES=`); JWT tests |
 | `dev-token-service` / `connect-local` / `connect-check` / `test-connect` | Shared lower-env client: local token service, connector config, end-to-end check, tests (docs/09) |
 | `env-update` / `model-check` | Add new `.env.example` settings to your `.env`; real-model end-to-end check (`LLM=gemini\|claude\|azure`) |
-| `demo-http` / `demo-injection` / `inspector-http` | HTTP walkthrough per caller; injection before/after; Inspector UI for HTTP |
+| `demo-http` / `demo-injection` / `inspector-http` | HTTP walkthrough (tokens, clients, scopes); injection before/after; Inspector UI for HTTP |
 | `chaos-slow` / `chaos-fail` / `chaos-off` / `chaos-status` | Inject 5 s latency / 503s into the backend, or turn it off |
 | `test` / `test-fast` / `test-mocks` / `test-client` / `test-harness` / `test-protocol` / `test-security` | Full suite / no slow tests / mock gateway / MCP server / harness (offline) / real-transport protocol tests / security-marked |
 | `lint` / `fmt` / `check` | Ruff (incl. `S` security rules) / auto-fix / lint + tests |
@@ -112,7 +108,7 @@ if the server ever imports the rig or an LLM SDK.
 |---|---|
 | `src/telco_mcp_lab/mcp_server/`: the MCP server | `harness/`: **simulated external agent** (Azure OpenAI host) used to test and evaluate the tools |
 | `ids.py`, `gateway_routes.py`: shared contract modules | `mock_apis/`: stands in for the API gateway + domain APIs |
-| `config/access.json`, `config/clients.json` (client registry) | `devtools/`: round-robin LB (gorouter stand-in), **dev token issuer** (token-service stand-in) |
+| `config/clients.json` (client registry) | `devtools/`: round-robin LB (gorouter stand-in), **dev token issuer** (token-service stand-in) |
 | `docs/tool-catalog.md` (generated contract) | `scripts/`: demos, wire tracer, smoke tests |
 | `docs/06-external-agents.md` (integrator guide) | `prompts/`, `config/guardrails.json`: the *agent's* prompt/guardrails (examples of what an agent owns) |
 
@@ -128,7 +124,7 @@ flowchart LR
     GW["API gateway<br/>(token validation)"] --> S
     subgraph S["MCP server: SHIPS"]
         direction TB
-        SEC["security/<br/>scopes · customer boundary · audit"]
+        SEC["security/<br/>client + scopes · audit"]
         T["tools/ (catalog = contract)"]
         SH["shaping/<br/>mask PII · withhold injected text"]
         CL["clients/<br/>timeouts · retry · breaker"]
@@ -145,11 +141,12 @@ flowchart LR
 Two trust boundaries, deliberately different:
 
 * **Agent → MCP server:** untrusted. Token → client + scopes; the server
-  enforces scopes and the customer boundary itself, and never relies on the
-  agent's prompt or confirmation UI.
+  enforces scopes, ID formats and PII masking itself, and never relies on the
+  agent's prompt or confirmation UI. The account ID is a tool argument, like the
+  domain APIs take it in the URL: **there is no per-customer boundary**, so any
+  client with `read` can read any account (accepted risk, docs/08 §1.6).
 * **MCP server → gateway:** the MCP server's **own** service token. The
-  agent's token is never passed through (the MCP spec forbids it). Backends
-  trust the MCP server, which is why arguments can never choose the customer.
+  agent's token is never passed through (the MCP spec forbids it).
 
 ## Repository layout
 
@@ -160,7 +157,7 @@ src/telco_mcp_lab/
     app.py              app factory, bearer auth, error handlers, admin/chaos endpoints
     routers/            accounts, subscriptions, services, orders, submissions
     store.py            SQLite drafts/orders/idempotency ("exactly once" lives here)
-    data.py             synthetic tenants, lines, and the prompt-injection note
+    data.py             synthetic accounts, lines, and the prompt-injection note
     problems.py         RFC 9457 Problem Details
     chaos.py            latency/failure injection middleware
   ids.py                ID formats: the shared contract between mocks and tool schemas
@@ -169,32 +166,29 @@ src/telco_mcp_lab/
     server.py           composition root: server, instructions, lifespan, tool registration
     http_app.py         stateless Streamable HTTP app (auth, DNS-rebinding protection)
     settings.py         MCP_* settings
-    state.py            process-wide AppState (pooled HTTP client only; no caller state)
-    security/           verifier (static) · jwt_verifier (JWKS) · clients (registry, customer header)
-                        · caller (CallerContext) · scoped_server
-                        (tool filtering/enforcement/audit) · guard (tenant) · audit
+    state.py            process-wide AppState (pooled HTTP client only; no request state)
+    security/           jwt_verifier (JWKS) · clients (ClientContext, registry) · scoped_server
+                        (tool filtering/enforcement/audit) · audit · environment (G2 guard)
     clients/            gateway (URLs, TokenProvider) · telco (typed client) · resilience
     shaping/            pii (masking) · free_text (injection neutralising)
     errors/tool_errors.py  failures → actionable, non-leaky tool errors
     tools/              account · lines (subscriptions, service details) · orders
-  harness/              Phase 5: the MCP HOST: settings · llm (Azure adapter) · bridge
+  harness/              Phase 5: the MCP HOST: settings · llm (Claude/Gemini/Azure) · bridge
                         (MCP ⇄ function calling) · agent (loop + guards) · prompts ·
                         guardrails · trace · CLI
   devtools/round_robin_lb.py  gorouter stand-in for the scaling demo
   devtools/token_issuer.py    DEV-ONLY token-service stand-in: RSA key, JWKS, mint tokens
   devtools/token_service.py   DEV-ONLY OAuth client-credentials endpoint + JWKS (:8095)
   connect/                    developer-side connector: headers (Claude Code) / bridge (stdio) / check
-config/access.json      tenants → accounts, callers → tenant + scopes (non-secret)
-config/clients.json     JWT mode: registered client_ids, bound/customer_context, allowed scopes
+config/clients.json     HTTP: registered client_ids, allowed scopes, environment tags (non-secret)
 config/guardrails.json  host guardrails: input redact/block/warn, grounded-identifier output rule
 prompts/agent.system.md the host's (agent's) system prompt: versioned, eval-gated
 tests/                  pytest; markers: security, slow
 scripts/smoke_mocks.py  real-HTTP smoke test of the mock gateway
 scripts/stdio_trace.py  transparent stdio proxy that logs every JSON-RPC message
 scripts/stdio_demo.py   scripted MCP client over stdio (modern or legacy era)
-scripts/http_demo.py    HTTP walkthrough as alice / bob / carol / mallory
+scripts/http_demo.py    HTTP walkthrough: refused tokens, clients, scopes, masking, IDs
 scripts/injection_demo.py  prompt-injection note: backend → model, before/after
-scripts/jwt_demo.py     JWT mode walkthrough: refused tokens, bound vs customer-context, registry
 docs/                   01-concepts.md (primer), 02-mock-backend.md, … one per phase
 ```
 
@@ -210,10 +204,10 @@ Grows each phase. Full version and verification notes are in
 | Structured output | Pydantic return model → `outputSchema` + `structuredContent` | Java record return type |
 | Tool error (model-fixable) | `raise ToolError("…")` → `isError: true` | exception → error result (verify exact mapping in Phase 7) |
 | stdio server | `MCPServer.run(transport="stdio")`, logs to stderr | `spring-ai-starter-mcp-server` + `spring.ai.mcp.server.stdio=true` |
-| Bearer auth seam | SDK `TokenVerifier` → `AccessToken` (static now, JWT later) | `oauth2-resource-server` + `JwtDecoder` (issuer + audience) |
-| Caller identity | `CallerContext` from `get_access_token()` | `SecurityContextHolder` / `JwtAuthenticationConverter` |
+| Bearer auth seam | SDK `TokenVerifier` → `AccessToken` (`JwtTokenVerifier`) | `oauth2-resource-server` + `JwtDecoder` (issuer + audience) |
+| Client identity | `ClientContext` from `get_access_token()` + registry | `SecurityContextHolder` / `JwtAuthenticationConverter` |
 | Scope-filtered tools | override `list_tools()` / `call_tool()` | per-request `ToolCallback` filter + `@PreAuthorize` |
-| Tenant guard | `resolve_account()` / `ensure_owned()` | `PermissionEvaluator` / service-layer ownership check |
+| Strict IDs | `Field(pattern=…)` on tool args | `@Pattern` on `@McpToolParam` |
 | Retry / breaker | `clients/resilience.py` | Resilience4j `@Retry` / `@CircuitBreaker` / `@TimeLimiter` |
 | Audit | JSON line on `telco_mcp.audit` | `@Around` aspect / Micrometer Observation + SLF4J |
 | Host: MCP tools → LLM functions | `harness/bridge.py` | `SyncMcpToolCallbackProvider` → `ToolCallback` |
@@ -264,9 +258,9 @@ Grows each phase. Full version and verification notes are in
   stdio rules, captured JSON-RPC wire walkthrough (modern vs legacy), error
   channels, MCP Inspector how-to, known gaps.
 * [docs/04-http-security-scaling.md](docs/04-http-security-scaling.md):
-  stateless HTTP and the 2-replica experiment, CallerContext, scopes, tenant
-  guard + security matrix, PII masking, injection before/after, resilience,
-  audit.
+  stateless HTTP and the 2-replica experiment, client + scopes, the no-customer-
+  boundary decision, security matrix, PII masking, injection before/after,
+  resilience, audit.
 * [docs/05-llm-harness.md](docs/05-llm-harness.md): the host loop, real
   step trace, host guards and y/N confirmation, data boundary to Azure, v1
   endpoint + corporate proxy config, `harness-check` diagnostics.
@@ -282,7 +276,7 @@ Grows each phase. Full version and verification notes are in
 * [docs/TODO.md](docs/TODO.md): **parked work** (rate limits + Redis, abuse tripwires,
   customer verification, token helper for dev tools, onboarding, harness Claude adapter).
 * [docs/07-internal-jwt.md](docs/07-internal-jwt.md): **running internally**: JWT
-  validation, client registry, customer-context header, run steps, the values to
+  validation, client registry, run steps, the values to
   confirm with the token-service team, and what changes before real APIs.
 * [docs/tool-catalog.md](docs/tool-catalog.md): **generated** tool contract with catalog hash.
 * [docs/92-industry-gap-analysis.md](docs/92-industry-gap-analysis.md): scorecard
@@ -314,4 +308,5 @@ Grows each phase. Full version and verification notes are in
 | Destructive calls | Host asks for y/N confirmation before `submit_order` |
 | Agent → MCP auth (E2) | JWT from the internal token service (client credentials, `scope` claim, `aud` = MCP server), **validated at the MCP server** via JWKS; gateway scope headers ignored |
 | Agent clients | Registry (`config/clients.json`); effective scopes = token ∩ allowed; unregistered = nothing |
-| Customer context (internal) | `X-Customer-Account-Id` set by agent **code**, only for `customer_context` clients; never a tool argument as authority |
+| Customer context (2026-09-27) | **None.** Account ID is a tool argument → API URL; any `read` client can read any account. Accepted risk (docs/08 §1.6), compensated by scopes, masking, strict IDs, per-ID audit |
+| Identity | One concept: the **client** (JWT `client_id` + registry scopes); stdio runs with `MCP_STDIO_SCOPES` |

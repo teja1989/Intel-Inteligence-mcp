@@ -6,10 +6,11 @@
 > the author's knowledge of industry practice, not a source checked on this date.
 
 **Summary:** as a *reference design* the lab matches current guidance for
-protocol use, the security layering, tenant isolation, response shaping and the
+protocol use, the security layering, response shaping and the
 split between prompts and code guardrails. As *production* it lacks real
 identity integration, rate limiting, tracing, managed secrets, eval/red-team
 gates and catalog pinning. Most of that is planned in E2/E3/Phase 6/Phase 7.
+Since 2026-09-27 it also deliberately has **no per-customer boundary** (docs/08 §1.6).
 
 Posture decision (2026-09-26): **every agent, internal or external, is treated
 as an untrusted third party** (see docs/06).
@@ -24,19 +25,19 @@ as an untrusted third party** (see docs/06).
 | **Identity & authorization** | | |
 | Resource-server shape, no token passthrough, 401 metadata pointer (RFC 9728) | ✅ | verified on the wire |
 | Real token validation (issuer, expiry, audience per RFC 8707) | ✅ E2 (dev keys) | JWKS signature, iss, aud, exp, lifetime, alg allow-list; real token-service values to confirm (docs/07 §6) |
-| Customer context for multi-customer agents | ⚠️ E2 internal | header asserted by registered internal clients (docs/07 §4); external agents need a server-verified handle (B2), parked |
+| Customer context for multi-customer agents | ⚠️ accepted risk | none: the account ID is a tool argument (decision 2026-09-27, docs/08 §1.6); external agents would need a server-verified handle (B2), parked |
 | Scope challenges / step-up (`403 insufficient_scope` + scope hint) | ⚠️ → E2 | today hidden = unknown; keep hiding what a client can *never* get, challenge where step-up is possible |
 | Per-agent-client policy (allowed scopes/tools, PII) | ✅ E2 | `config/clients.json`; effective scopes = granted ∩ allowed; unregistered = nothing |
-| Tenant isolation | ✅ | cross-tenant matrix, mutation-checked |
+| Customer isolation | ❌ by decision | any `read` client reads any account; compensated by scopes, masking, strict IDs, per-ID audit; per-request isolation (no client/account bleed) tested under concurrency |
 | **Data protection & guardrails** | | |
 | PII minimisation/masking; IMSI/ICCID never returned | ✅ | |
 | Injection defence in layers (structural first) | ✅ | a known bypass is pinned by a test |
 | Host guardrails; traces written after guardrails | ✅ lab | for external agents this is **their** obligation (docs/06 §8) |
 | Server doesn't rely on host confirmation | ✅ principle | Phase 4 must enforce consent server-side |
-| **Rate limiting** (tools spec: servers **MUST** rate-limit) | ❌ → E3 | per client + per customer; gateway vs server **OPEN** |
+| **Rate limiting** (tools spec: servers **MUST** rate-limit) | ❌ → E3 | per client, plus distinct-accounts-per-client tripwire; gateway vs server **OPEN** |
 | Provider content safety | ❓ | the external agent's responsibility; for internal agents, check the Azure deployment's filters |
 | **Operations** | | |
-| Audit (metadata only) | ✅ | client_id (incl. unregistered) + customer since E2 |
+| Audit (metadata only) | ✅ | client_id (incl. unregistered) + account / line / order IDs touched |
 | Tracing/metrics: OpenTelemetry, `traceparent` in `_meta` (2026-07-28) | ❌ → Phase 7 | GenAI semantic conventions *(knowledge)* |
 | Timeouts, retry, circuit breaker | ✅ pattern | thresholds untuned |
 | Secrets management | ❌ | `.env` is lab-only; Vault / CredHub / Key Vault in production |
@@ -51,8 +52,9 @@ as an untrusted third party** (see docs/06).
 ## Findings that changed the design
 
 1. **Client credentials ≠ customer identity.** With an agent serving many
-   customers, a customer ID in an argument would be a confused deputy. Design:
-   model A/B (docs/06 §4, E2).
+   customers, a customer ID in an argument is a confused deputy. For internal
+   clients this was **accepted** on 2026-09-27 (docs/08 §1.6); external agents
+   need model A/B (docs/06 §4).
 2. **Hidden-tool vs scope challenge.** Hiding prevents probing but blocks
    step-up; use both deliberately.
 3. **Rate limiting is a MUST**, and missing.

@@ -6,9 +6,8 @@ import httpx2
 import pytest
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
-from pydantic import ValidationError
 
-from telco_mcp_lab.harness.__main__ import diagnose, mcp_headers
+from telco_mcp_lab.harness.__main__ import diagnose, mcp_client
 from telco_mcp_lab.harness.agent import Agent
 from telco_mcp_lab.harness.settings import HarnessSettings
 from telco_mcp_lab.harness.trace import Tracer
@@ -18,28 +17,28 @@ from tests.mcp_server.test_http_protocol import auth, mcp_servers
 
 @pytest.mark.protocol
 @pytest.mark.parametrize("mode", ["auto", "legacy"])
-async def test_harness_over_http_as_bob(live_gateway, mode):
+async def test_harness_over_http(live_gateway, mode):
     model = ScriptedModel(
-        call("list_subscriptions", {"status": "SUSPENDED"}),
+        call("list_subscriptions", {"account_id": "ACC-2001", "status": "SUSPENDED"}),
         say("One suspended line."),
     )
     with mcp_servers(live_gateway) as (url,):
         async with (
-            httpx2.AsyncClient(headers=auth("bob"), trust_env=False) as http,
+            httpx2.AsyncClient(headers=auth(), trust_env=False) as http,
             Client(streamable_http_client(url + "/mcp", http_client=http), mode=mode) as mcp,
         ):
             result = await Agent(model, mcp, Tracer(out=io.StringIO())).ask("suspended lines?")
     assert result.answer == "One suspended line."
     tool_msg = [m for m in model.seen_messages[-1] if m["role"] == "tool"][0]["content"]
-    assert "SUB-2001-05" in tool_msg and "ACC-2001" in tool_msg  # bob's own data only
+    assert "SUB-2001-05" in tool_msg and "ACC-2001" in tool_msg
 
 
 @pytest.mark.protocol
-async def test_harness_as_scope_less_caller_offers_no_tools(live_gateway):
+async def test_harness_as_scope_less_client_offers_no_tools(live_gateway):
     model = ScriptedModel(say("I can't access account data."))
     with mcp_servers(live_gateway) as (url,):
         async with (
-            httpx2.AsyncClient(headers=auth("mallory"), trust_env=False) as http,
+            httpx2.AsyncClient(headers=auth("profile"), trust_env=False) as http,
             Client(streamable_http_client(url + "/mcp", http_client=http)) as mcp,
         ):
             await Agent(model, mcp, Tracer(out=io.StringIO())).ask("show my account")
@@ -73,28 +72,16 @@ class TestDiagnose:
         assert "Name or service not known" in msg and "DNS" in msg
 
 
-class TestMcpHeaders:
-    """JWT mode: the host app (not the model) sets the token and the customer header."""
+class TestMcpClient:
+    def test_stdio_is_the_default_and_needs_no_token(self):
+        hs = HarnessSettings(_env_file=None)
+        assert hs.transport == "stdio" and hs.bearer_token is None
+        mcp_client(hs)  # builds without a token
 
-    def test_bearer_token_replaces_caller_token_and_customer_header_is_added(self):
-        hs = HarnessSettings(
-            _env_file=None, bearer_token="jwt-abc", customer_account_id="ACC-1001,ACC-1002"
-        )
-        assert mcp_headers(hs) == {
-            "Authorization": "Bearer jwt-abc",
-            "X-Customer-Account-Id": "ACC-1001,ACC-1002",
-        }
-
-    def test_no_customer_header_unless_configured(self):
-        assert set(mcp_headers(HarnessSettings(_env_file=None, bearer_token="t"))) == {
-            "Authorization"
-        }
-
-    @pytest.mark.parametrize("bad", ["ACC-1", "ACC-1001\r\nX-Evil: 1", "ACC-1001;ACC-1002"])
-    def test_customer_id_format_enforced(self, bad):
-        with pytest.raises(ValidationError):
-            HarnessSettings(_env_file=None, customer_account_id=bad)
+    def test_http_without_a_token_stops_with_a_hint(self):
+        with pytest.raises(SystemExit, match="make token"):
+            mcp_client(HarnessSettings(_env_file=None, transport="http"))
 
     def test_blank_env_values_mean_unset(self):
-        hs = HarnessSettings(_env_file=None, bearer_token="", customer_account_id=" ")
-        assert hs.bearer_token is None and hs.customer_account_id is None
+        hs = HarnessSettings(_env_file=None, bearer_token=" ", llm="")
+        assert hs.bearer_token is None and hs.llm is None

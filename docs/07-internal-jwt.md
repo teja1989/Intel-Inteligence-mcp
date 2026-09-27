@@ -1,7 +1,8 @@
-# 07 · Running internally: JWT auth, client registry, customer context (E2)
+# 07 · Running internally: JWT auth and the client registry (E2)
 
 > **Goal:** a version of the MCP server you can run internally, authenticating
-> the **real token service's JWTs** instead of the lab's static tokens.
+> the **real token service's JWTs**. HTTP is JWT-only; locally the token service
+> is a stand-in (`make dev-keys`, `make token`, `make dev-token-service`).
 > **Status:** built and tested against a *local stand-in* for the token service.
 > Pointing it at your real token service needs the values in §6, which I could
 > not verify from here.
@@ -13,15 +14,15 @@ sequenceDiagram
     participant A as Agent app (internal)
     participant T as Token service
     participant G as API gateway
-    participant S as MCP server (JWT mode)
+    participant S as MCP server
     participant B as Domain APIs
     A->>T: client_id + secret (client credentials)
     T-->>A: JWT (scope, aud = MCP server, 2 h)
-    A->>G: POST /mcp · Authorization: Bearer JWT · X-Customer-Account-Id (customer_context clients)
+    A->>G: POST /mcp · Authorization: Bearer JWT (tool args carry the account ID)
     G->>S: forwards Authorization (+ scope headers, ignored)
     S->>S: 1 validate JWT (JWKS signature, iss, aud, exp, lifetime)
-    S->>S: 2 client registry: registered? effective scopes? bound or customer_context?
-    S->>S: 3 tool scope check → tenant/customer guard → shaping → audit
+    S->>S: 2 client registry: registered? effective scopes?
+    S->>S: 3 tool scope check → ID format check → shaping → audit (client + IDs)
     S->>B: its OWN service token (never the agent's)
 ```
 
@@ -58,8 +59,8 @@ A valid token is **necessary, not sufficient**: the `client_id` must be
 registered.
 
 ```json
-"care-agent-internal": { "mode": "customer_context", "allowed_scopes": ["read", "pii:read"] },
-"ops-dashboard":       { "mode": "bound", "tenant": "tenant-a", "allowed_scopes": ["read"] }
+"lowerenv-shared":     { "allowed_scopes": ["read"], "environments": ["local", "dev", "test"] },
+"care-agent-internal": { "allowed_scopes": ["read", "pii:read"] }
 ```
 
 * **Effective scopes = token scopes (mapped via `scope_map`) ∩ `allowed_scopes`.**
@@ -67,36 +68,22 @@ registered.
   scopes are ignored.
 * **Unregistered client:** sees no tools, and every call answers `Unknown tool`.
   It's audited with its `client_id` so you can see who tried.
-* **`bound`:** the client only ever sees its tenant's accounts. The customer header is ignored.
-* **`customer_context`:** see §4.
+* **`environments`** (optional): where the entry is loaded; production refuses
+  entries not tagged for it (G2, docs/08).
+* **No per-customer boundary:** a client with `read` can read any account by ID
+  (accepted risk, docs/04 §3).
 
 The client IDs and scope names in the file are **placeholders**. Replace them
 with your token service's real ones.
 
-## 4. Customer context: `X-Customer-Account-Id`
+## 4. Where the account comes from
 
-You said the token is service-to-service and customer context comes "from the
-API call they make … when they call with certain attributes". This server
-implements that as **one request header** that the **agent application's code**
-sets from its own session. The LLM never sets it:
-
-* `X-Customer-Account-Id: ACC-1001` (or up to 10 comma-separated IDs) → the
-  request can touch only those accounts. Tool arguments only *select among*
-  them. Anything else gets the uniform "not found".
-* Missing → no account data at all ("No customer is selected… do not retry with
-  an account_id"). Malformed or **repeated** header → the same, plus a warning log.
-* Honoured only for clients registered as `customer_context`. Audited on every call
-  (`"customer":"ACC-1001"`).
-
-> **Trust boundary, stated plainly:** the header is an *assertion* by an
-> authenticated, registered internal client, not proof that the customer was
-> verified. It's acceptable for internal agents you control. For third-party
-> agents, replace it with a server-verified signed handle (docs/06 §4, model B2).
-
-**Assumption to confirm (§6):** the attribute name and value format. If your
-agents identify customers by MSISDN or a customer number rather than account ID,
-the server needs a lookup (attribute → accounts) from an entitlement API.
-That's a change I'd make once you share the contract.
+The account ID is a **tool argument**: the user gives it, the model passes it, the
+server checks its format and puts it in the domain API URL, like the APIs
+themselves work. There is no customer header and no per-client account list
+(removed 2026-09-27 to keep one simple identity concept; docs/04 §3 lists what
+compensates). The audit line records the client and every account / line / order
+ID a call touched.
 
 ## 5. Run it
 
@@ -105,19 +92,19 @@ That's a change I'd make once you share the contract.
 ```bash
 make dev-keys                      # RSA key (0600) + JWKS in .data/dev-keys
 make mocks                         # terminal 1
-make mcp-http-jwt                  # terminal 2: JWT mode, trusting the dev JWKS
-make demo-jwt                      # terminal 3: 401s, bound vs customer-context, registry
+make mcp-http                      # terminal 2: no MCP_JWT_* in .env → trusts the dev JWKS
+make demo-http                     # terminal 3: 401s, clients, scopes, masking, IDs
 make token CLIENT=care-agent-internal SCOPES="read pii:read"   # a token for Inspector/curl
-make test-jwt                      # 71 tests: verifier, JWKS cache, registry, over-the-wire
+make test-jwt                      # verifier, JWKS cache, registry, over-the-wire
 ```
 
-Harness against a JWT-mode server: set `HARNESS_BEARER_TOKEN=$(make -s token CLIENT=…)` and
-`HARNESS_CUSTOMER_ACCOUNT_ID=ACC-1001` (or `--customer ACC-1001`), then `make ask Q=…`.
+Harness over HTTP: `HARNESS_TRANSPORT=http` and `HARNESS_BEARER_TOKEN=$(make -s token)`,
+then `make ask Q=…` (the default, stdio, needs no token).
 
-**Against your real token service:** in `.env`:
+**Against your real token service:** in `.env` (as soon as `MCP_JWT_ISSUER` is set,
+`make mcp-http` stops using the dev keys):
 
 ```bash
-MCP_AUTH_MODE=jwt
 MCP_JWT_ISSUER=<exact iss>
 MCP_JWT_AUDIENCE=<exact aud the service puts in MCP tokens>
 MCP_JWT_JWKS_URL=https://<token service>/<jwks path>
@@ -141,8 +128,7 @@ Then run `make mcp-http`. `/healthz` is unauthenticated liveness only (`{"status
 | 5 | Claim carrying the client ID | `MCP_JWT_CLIENT_ID_CLAIMS` | `client_id`, then `azp` |
 | 6 | Scope claim name and format (space string / list) and **scope names** | `MCP_JWT_SCOPE_CLAIM`, `scope_map` | `scope` |
 | 7 | Is `iat` always present? | `MCP_JWT_REQUIRED_CLAIMS` | yes |
-| 8 | Which customer attribute(s) internal agents send, and its format | `MCP_CUSTOMER_HEADER`, parser | account ID(s) |
-| 9 | Is the MCP server reachable **only** via the gateway? | network policy | assume **no**, hence full validation here |
+| 8 | Is the MCP server reachable **only** via the gateway? | network policy | assume **no**, hence full validation here |
 
 Fastest way: decode one **non-production** token (header + payload only, no
 signature) and share the claim names, not the token.
@@ -167,5 +153,4 @@ real gateways changes that, so it's deliberately not one switch:
 | `JwtTokenVerifier` + `JwtSettings` | `spring-boot-starter-oauth2-resource-server`: `spring.security.oauth2.resourceserver.jwt.issuer-uri`/`jwk-set-uri`, `audiences`, `jws-algorithms` |
 | lifetime / `iat` checks | a custom `OAuth2TokenValidator<Jwt>` added to `DelegatingOAuth2TokenValidator` |
 | `ClientRegistry.context_for` | `JwtAuthenticationConverter` (client lookup, scope ∩ allowed → authorities) |
-| `CustomerHeaderMiddleware` | a `OncePerRequestFilter` → request-scoped customer context bean |
 | unauthenticated `/healthz` | Actuator `health` with `permitAll()`, details hidden |

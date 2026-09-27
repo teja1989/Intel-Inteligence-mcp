@@ -2,7 +2,7 @@
 
 `MCP_ENVIRONMENT` is one of local | dev | test | production. In production every
 rule below must hold, or the process exits before serving a single request, with
-all violations listed. A config slip (the dev JWKS file, lab tokens, a lower-env
+all violations listed. A config slip (the dev JWKS file, stdio, a lower-env
 client left in the registry) then fails loudly at deploy time instead of quietly
 opening production to lower-env credentials.
 
@@ -39,7 +39,6 @@ class ProductionFacts:
     """The settings the guard looks at, gathered from wherever they're configured."""
 
     transport: str  # "http" | "stdio"
-    auth_mode: str  # "static" | "jwt"
     public_url: str
     unsafe_raw_free_text: bool
     legacy_sessions: bool = False
@@ -66,16 +65,14 @@ def _dev_host(url: str) -> str | None:
 def production_problems(f: ProductionFacts) -> list[str]:
     problems: list[str] = []
     if f.transport != "http":
-        problems.append("stdio transport acts as one fixed caller with no authentication")
-    if f.auth_mode != "jwt":
-        problems.append("MCP_AUTH_MODE must be jwt (static lab tokens are for demos)")
+        problems.append("stdio transport has no authentication (local use only)")
     if f.legacy_sessions:
         problems.append("--legacy-sessions keeps sessions in memory (demo; breaks scaling)")
     if f.unsafe_raw_free_text:
         problems.append("MCP_UNSAFE_RAW_FREE_TEXT must be false (lab demo switch)")
     if reason := _dev_host(f.public_url):
         problems.append(f"MCP_PUBLIC_URL {reason}")
-    if f.auth_mode == "jwt":
+    if f.transport == "http":
         if f.jwt_jwks_file is not None:
             problems.append("MCP_JWT_JWKS_FILE is for local testing; use MCP_JWT_JWKS_URL")
         for name, value in (

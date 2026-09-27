@@ -162,18 +162,16 @@ class HarnessSettings(BaseSettings):
         env_prefix="HARNESS_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
+    # stdio (default): the harness starts the MCP server itself, no token needed; the
+    # server's permissions come from MCP_STDIO_SCOPES. http: a running server at mcp_url,
+    # with a JWT in bearer_token (e.g. `make token`).
+    transport: Literal["stdio", "http"] = "stdio"
     mcp_url: str = "http://127.0.0.1:8090/mcp"
+    bearer_token: SecretStr | None = None
     # claude | gemini | azure. Unset: the first configured one, in that order.
     llm: Literal["claude", "gemini", "azure"] | None = None
-    caller: str = "alice"  # uses MCP_TOKEN_<CALLER> from .env
-    # JWT mode: a token from the token service (or `make token`) replaces MCP_TOKEN_<CALLER>.
-    bearer_token: SecretStr | None = None
-    # JWT mode, customer_context clients: sent as X-Customer-Account-Id by THIS APP's code,
-    # i.e. the host decides which customer the conversation is about, never the model.
-    customer_account_id: str | None = Field(default=None, pattern=r"^ACC-\d{4}(,ACC-\d{4})*$")
-    customer_header: str = "X-Customer-Account-Id"
 
-    @field_validator("bearer_token", "customer_account_id", "llm", mode="before")
+    @field_validator("bearer_token", "llm", mode="before")
     @classmethod
     def _blank_is_unset(cls, v: object) -> object:  # blank .env lines mean "not set"
         return None if isinstance(v, str) and not v.strip() else v

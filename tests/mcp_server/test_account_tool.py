@@ -15,7 +15,7 @@ import respx
 from mcp import Client
 
 from telco_mcp_lab.mock_apis.data import INJECTED_NOTE
-from tests.conftest import GATEWAY_URL, TEST_TOKEN, make_telco, server_as
+from tests.conftest import GATEWAY_URL, TEST_TOKEN, make_telco, server_with
 
 ACCOUNT_URL = f"{GATEWAY_URL}/boaccount/API/account/ACC-1001"
 SUBS_URL = f"{GATEWAY_URL}/bosubscription/API/subscription"
@@ -51,8 +51,8 @@ def text_of(result) -> str:
 
 @pytest.fixture
 def respx_server():
-    # Acting as alice (tenant-a: ACC-1001, ACC-1002; scope read).
-    return server_as("alice", lambda: make_telco(read_timeout_s=0.5))
+    # A local client with scope read (no pii:read, so PII is masked).
+    return server_with(lambda: make_telco(read_timeout_s=0.5))
 
 
 # ---------------------------------------------------------------------- contract (tools/list)
@@ -64,9 +64,8 @@ class TestContract:
         assert tool.annotations.read_only_hint is True
         assert tool.annotations.open_world_hint is False
         schema = tool.input_schema
-        assert "required" not in schema  # account comes from the caller; the arg is a selector
-        patterns = [a.get("pattern") for a in schema["properties"]["account_id"]["anyOf"]]
-        assert r"^ACC-\d{4}$" in patterns
+        assert schema["required"] == ["account_id"]  # the account always comes from the argument
+        assert schema["properties"]["account_id"]["pattern"] == r"^ACC-\d{4}$"
         assert tool.output_schema["required"]  # structured output is declared
         # LLM-oriented description: when to use AND when not to.
         assert "Use this when" in tool.description and "Do NOT use" in tool.description
@@ -79,7 +78,7 @@ class TestSummary:
     async def test_foreign_rows_from_a_misbehaving_backend_are_dropped(self, respx_server):
         """Review bug 5: same belt-and-braces filter as the list tools."""
         respx.get(ACCOUNT_URL).respond(json=ACCOUNT)
-        foreign = {**sub(9, "ACTIVE", "Other Tenant Plan"), "account_id": "ACC-2001"}
+        foreign = {**sub(9, "ACTIVE", "Other Account Plan"), "account_id": "ACC-2001"}
         respx.get(SUBS_URL).respond(
             json={"items": [sub(1, "ACTIVE", "Standard 50GB"), foreign], "next_cursor": None}
         )
@@ -117,7 +116,7 @@ class TestSummary:
             "account_id": "ACC-1001",
             "account_type": "CONSUMER",
             "status": "ACTIVE",
-            "holder_name": "A*** E******",  # masked: alice lacks pii:read
+            "holder_name": "A*** E******",  # masked: no pii:read
             "customer_since": "2021-03-14",
             "subscriptions": {"active": 2, "suspended": 1, "terminated": 0, "total": 3},
             "active_plans": ["Standard 50GB"],
@@ -245,9 +244,8 @@ class TestErrors:
 # ------------------------------------------------------- integration (real mock app, in-process)
 class TestAgainstMockGateway:
     async def test_real_mock_data(self, mock_telco_factory):
-        # bob (tenant-b) has exactly one account, so account_id can be omitted.
-        async with Client(server_as("bob", mock_telco_factory)) as c:
-            r = await c.call_tool("get_account_summary", {})
+        async with Client(server_with(mock_telco_factory)) as c:
+            r = await c.call_tool("get_account_summary", {"account_id": "ACC-2001"})
         assert r.structured_content["subscriptions"] == {
             "active": 4,
             "suspended": 1,

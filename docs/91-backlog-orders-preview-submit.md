@@ -12,8 +12,8 @@
   | `order:preview` | `preview_order`, `answer_preview` | Creates or updates a preview. No commitment; expires |
   | `order:submit` | `submit_order` | Commits the order. Destructive, idempotent via key |
 
-  A read-only caller gets neither, so an injected "submit an order" has no tool
-  to act with. A caller can be allowed to *explore* changes (preview) without
+  A read-only client gets neither, so an injected "submit an order" has no tool
+  to act with. A client can be allowed to *explore* changes (preview) without
   being allowed to *commit* them.
 * The backend has a **preview API** whose response can be **one or several
   steps of questions for the user**, then a **submit API**. The current mock
@@ -45,7 +45,7 @@ submit_order(previewId, idempotencyKey) → {orderId}
   call, with a stated expiry (2026-07-28 `server/tools`, "handles").
 * The backend owns the preview state, so any replica can serve any step: stateless.
 * Works in **both protocol eras and in Spring AI's STATELESS mode** (it's just tool calls).
-* Every step shows up in our audit log and cross-tenant matrix like any other tool.
+* Every step shows up in our audit log and security matrix like any other tool.
 
 ### Option B: MCP "multi round-trip requests" (MRTR / elicitation)
 
@@ -77,7 +77,7 @@ stack). Optionally add Option B later as an experiment in the Python lab only.
 
 ## Planned tests (when built)
 
-Scope split (preview-only caller can't submit; hidden = unknown), cross-tenant
+Scope split (preview-only client can't submit; hidden = unknown), security
 matrix rows for every new tool and for foreign `previewId`s, expired preview,
 multi-step happy path, answers validated against the question schema,
 10-parallel identical submits → exactly one order (through MCP, over HTTP,

@@ -1,7 +1,7 @@
 """Host-side guardrails, enforced in code. Configured in config/guardrails.json.
 
 Where this sits among the controls (see docs/05b):
-  * MCP server (authoritative): auth, scopes, tenant guard, schemas, shaping.
+  * MCP server (authoritative): auth, scopes, ID formats, schemas, shaping.
   * Host (this module): what the USER sends to the model, and what the MODEL
     says back to the user.
   * Provider: Azure OpenAI content filters on your deployment.

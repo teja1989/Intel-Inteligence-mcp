@@ -21,7 +21,7 @@ from telco_mcp_lab.harness.llm_claude import (
 )
 from telco_mcp_lab.harness.settings import ClaudeSettings
 from telco_mcp_lab.harness.trace import Tracer
-from tests.conftest import server_as
+from tests.conftest import server_with
 
 KEY = "sk-ant-test-0123456789"
 THINKING = {"type": "thinking", "thinking": "", "signature": "sig-abc123"}
@@ -60,7 +60,7 @@ class FakeClaude:
 
 
 async def ask(fake: FakeClaude, prompt: str, mock_telco_factory, **kw):
-    async with Client(server_as("alice", mock_telco_factory)) as mcp:
+    async with Client(server_with(mock_telco_factory)) as mcp:
         agent = Agent(fake.model(**kw), mcp, Tracer(out=io.StringIO()))
         return await agent.ask(prompt)
 
@@ -161,7 +161,7 @@ class TestLoop:
     async def test_tool_error_is_flagged(self, mock_telco_factory):
         fake = FakeClaude(
             message(
-                [tool_use("t1", "get_order_status", {"order_id": "ORD-000456"})], stop="tool_use"
+                [tool_use("t1", "get_order_status", {"order_id": "ORD-999999"})], stop="tool_use"
             ),  # fmt: skip
             message([{"type": "text", "text": "Not found."}]),
         )

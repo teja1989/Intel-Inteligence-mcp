@@ -19,9 +19,16 @@ import re
 from mcp.server.mcpserver.exceptions import ToolError
 
 from telco_mcp_lab.mcp_server.clients.telco import GatewayError, GatewayUnavailable
-from telco_mcp_lab.mcp_server.security.guard import not_found
 
 log = logging.getLogger(__name__)
+
+
+def not_found(kind: str, example: str) -> str:
+    return (
+        f"No {kind} with that ID was found. {kind.capitalize()} IDs look like {example}. "
+        "Do not guess IDs: use the list tools or ask the user."
+    )
+
 
 _SAFE_TOKEN = re.compile(r"^[A-Z0-9-]{1,40}$")
 # Error codes are backend-controlled too: only a plain identifier may reach the model or logs.
@@ -32,8 +39,7 @@ def _safe_code(code: str) -> str:
     return code if _SAFE_CODE.match(code) else "UNRECOGNISED_ERROR"
 
 
-# Same wording as the tenant guard's refusals (security/guard.py): "doesn't
-# exist" and "belongs to another tenant" must be indistinguishable.
+# Messages built from stable backend codes (never the backend's free text).
 _NOT_FOUND_HINTS = {
     "ACCOUNT_NOT_FOUND": not_found("account", "ACC-1001"),
     "SUBSCRIPTION_NOT_FOUND": not_found("subscription", "SUB-1001-01"),

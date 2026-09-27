@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from telco_mcp_lab.mcp_server.security.clients import Scope
+
 # Asymmetric only. HS* would mean sharing the token service's signing secret with
 # every resource server (anyone holding it can mint tokens); "none" is no signature.
 ASYMMETRIC_ALGORITHMS = frozenset(
@@ -21,17 +23,20 @@ class McpServerSettings(BaseSettings):
     # local | dev | test | production. production refuses lab/lower-env settings at
     # startup (guardrail G2, security/environment.py, docs/08).
     environment: Literal["local", "dev", "test", "production"] = "local"
-    # static: lab tokens MCP_TOKEN_<CALLER> (demos/tests). jwt: tokens from the token service.
-    auth_mode: Literal["static", "jwt"] = "static"
-    access_config: Path = Path("config/access.json")
-    # jwt mode: which client_ids may call, their mode (bound / customer_context), allowed scopes.
+    # HTTP: which client_ids may call and their allowed scopes (tokens are always JWTs).
     clients_config: Path = Path("config/clients.json")
-    # jwt mode, customer_context clients: the header the AGENT APPLICATION sets (never the model)
-    # with the customer's account ID(s), comma-separated.
-    customer_header: str = "X-Customer-Account-Id"
 
-    # stdio has no headers, so the process runs as ONE configured caller.
-    stdio_caller: str = "alice"
+    # stdio has no headers (no token), so the process runs with these scopes,
+    # space-separated: "read", or "read pii:read" to see unmasked PII.
+    stdio_scopes: str = "read"
+
+    @field_validator("stdio_scopes")
+    @classmethod
+    def _known_scopes(cls, v: str) -> str:
+        known = {Scope.READ, Scope.PII_READ, Scope.ORDER_SUBMIT}
+        if unknown := set(v.split()) - known:
+            raise ValueError(f"unknown scopes {sorted(unknown)}; known: {sorted(known)}")
+        return v
 
     host: str = "127.0.0.1"  # never 0.0.0.0 in the lab (spec: bind to localhost)
     port: int = Field(default=8090, ge=1, le=65535)
@@ -48,7 +53,7 @@ class McpServerSettings(BaseSettings):
 
 
 class JwtSettings(BaseSettings):
-    """Validation of access tokens from the internal token service (MCP_AUTH_MODE=jwt).
+    """Validation of access tokens from the internal token service (HTTP transport).
 
     Every value is what YOUR token service does. The defaults are a guess at a typical
     client-credentials JWT; confirm each against a real (decoded, non-production) token.

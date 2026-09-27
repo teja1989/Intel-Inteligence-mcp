@@ -4,8 +4,8 @@ Design (Option A, "service token"):
     The MCP server calls the gateway with ITS OWN token. It never forwards the
     token its caller presented. The MCP spec (2026-07-28, Authorization ·
     Security Considerations) says: "The MCP server MUST NOT pass through the
-    token it received from the MCP client." The tenant boundary is therefore
-    enforced inside the MCP server (security/, Phase 3).
+    token it received from the MCP client." Client scopes and PII masking are
+    therefore enforced inside the MCP server (security/).
 
 The seam: tools and clients depend on `TokenProvider`, never on where the
 token comes from. Today that's `StaticTokenProvider` (from `.env`). Later an

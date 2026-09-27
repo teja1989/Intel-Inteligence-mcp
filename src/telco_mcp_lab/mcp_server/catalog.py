@@ -22,8 +22,8 @@ CATALOG_DOC = Path(__file__).parents[3] / "docs" / "tool-catalog.md"
 
 
 async def catalog_definitions(server: ScopedMCPServer) -> list[dict[str, Any]]:
-    """Every registered tool, regardless of caller, in registration order."""
-    tools = await MCPServer.list_tools(server)  # bypass per-caller filtering on purpose
+    """Every registered tool, regardless of client scopes, in registration order."""
+    tools = await MCPServer.list_tools(server)  # bypass per-client filtering on purpose
     return [
         {
             "name": t.name,
@@ -118,12 +118,9 @@ def render_markdown(definitions: list[dict[str, Any]], server_version: str) -> s
 
 async def build_catalog_markdown() -> str:
     from telco_mcp_lab import __version__
-    from telco_mcp_lab.mcp_server.security.caller import AccessModel
     from telco_mcp_lab.mcp_server.server import build_server
-    from telco_mcp_lab.mcp_server.settings import McpServerSettings
 
-    access = AccessModel.load(McpServerSettings(_env_file=None).access_config)
-    server = build_server(access_model=access)  # no lifespan runs: no backend needed
+    server = build_server()  # no lifespan runs: no backend needed
     return render_markdown(await catalog_definitions(server), __version__)
 
 

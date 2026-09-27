@@ -26,7 +26,7 @@ flowchart LR
     end
     TS[(Token service)] -. "client_id + secret → access token (2 h)" .-> A
     A -- "HTTPS · Streamable HTTP · Bearer token" --> GW[API gateway<br/>token validation]
-    GW --> S["Telco MCP server<br/>scopes · tenant guard · shaping · audit"]
+    GW --> S["Telco MCP server<br/>scopes · strict IDs · shaping · audit"]
     S -- "its own service identity" --> B[(Domain APIs)]
 ```
 
@@ -39,7 +39,7 @@ flowchart LR
 | Sessions | **None.** Don't send or expect `Mcp-Session-Id`. Any request may hit any replica |
 | Responses | JSON (`application/json`); SSE only if the spec requires it for a request |
 | Required headers | `Authorization: Bearer <token>`; `Accept: application/json, text/event-stream`; for 2026-07-28 also `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` (per spec) |
-| Tool list caching | `tools/list` is **per caller** and marked `cacheScope: "private"`. Never share one caller's list with another |
+| Tool list caching | `tools/list` is **per client** and marked `cacheScope: "private"`. Never share one client's list with another |
 
 Our reference tests run the official Python SDK client in both protocol eras,
 and MCP Inspector 2.8.0 (TypeScript SDK), against a two-replica deployment
@@ -56,7 +56,8 @@ behind a round-robin load balancer.
   `iss`, `aud` = this server, `exp`, max 2 h lifetime; docs/07), whatever the
   gateway also checks. Your `client_id` must be **registered** with us; your
   effective scopes are what the token grants *and* your registration allows.
-  The server enforces **scopes per tool** and the **customer boundary** (§4).
+  The server enforces **scopes per tool**; external agents will also need the
+  customer boundary in §4 (not built: internal clients have none, docs/08 §1.6).
 * **Errors:** `401` (missing/invalid/expired token; `WWW-Authenticate` names
   the problem) → get a new token. `403` → the token lacks a required scope.
   Don't retry; request the scope through onboarding.
@@ -73,7 +74,11 @@ behind a round-robin load balancer.
 * We **never** forward your token to our backends. The server calls them with
   its own identity (MCP spec: token passthrough is forbidden).
 
-## 4. Customer context: which customer are you acting for?
+## 4. Customer context: which customer are you acting for? (external agents, parked)
+
+> Internal clients today pass the account ID as a tool argument with no customer
+> boundary (decision 2026-09-27, docs/08 §1.6). This section is what external
+> agents would need before they are allowed in.
 
 A client-credentials token identifies **your agent**, not the customer. The
 server must still know, **provably**, which customer's data a request may touch.
@@ -135,7 +140,7 @@ context allows. Anything else gets the same answer as "doesn't exist".
 | Masked PII by default; instruction-like free text withheld | Treat all tool output as **data**; don't reconstruct masked values |
 | Writes (when available): scope + server-issued preview + idempotency key; you can't skip a step | **Ask the customer to confirm** before any non-read-only tool, and show them what will happen |
 | Actionable error text; no internal details leaked | Show errors honestly; limit tool-call loops (steps/time) |
-| Audit of every tool call (tool, caller, tenant, outcome, latency, **no payloads**; separate agent-client field from E2) | Log your side (conversation IDs) so incidents can be correlated |
+| Audit of every tool call (tool, client, account / line / order IDs, outcome, latency, **no payloads**) | Log your side (conversation IDs) so incidents can be correlated |
 | Stable, versioned catalog with a hash | Pin the hash; re-test your agent before accepting a catalog change |
 | Rate limits per client (E3) | Back off on 429; don't retry "do not retry" errors |
 
@@ -159,7 +164,8 @@ published one; your agent asks for confirmation before any non-read-only tool.
 ## 11. Changelog
 
 * v0.1 (lab draft): initial guide; read tools only.
-* v0.2: server-side JWT validation and client registration (§3); internal customer-context header (docs/07 §4).
+* v0.2: server-side JWT validation and client registration (§3).
+* v0.3 (2026-09-27): internal clients have **no customer boundary** (account ID is a tool argument; docs/08 §1.6). §4 below is the design for external agents only.
 
 ## 12. Open decisions (tracked)
 

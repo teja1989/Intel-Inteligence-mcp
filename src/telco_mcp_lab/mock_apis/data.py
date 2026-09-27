@@ -10,12 +10,9 @@ so they can never collide with a real subscriber:
 `tests/mock_apis/test_synthetic_data.py` enforces these rules, so a real
 number cannot slip in by accident.
 
-Tenants in this lab:
-    tenant-a -> ACC-1001, ACC-1002   (a consumer with two accounts)
-    tenant-b -> ACC-2001             (a small business)
-The tenant -> account mapping is NOT known to the backend. It belongs to the
-MCP server's CallerContext (Phase 3). The backend trusts its service caller,
-which is exactly why the MCP server must enforce the tenant boundary.
+Accounts in this lab: ACC-1001 and ACC-1002 (a consumer with two accounts)
+and ACC-2001 (a small business). Like the real APIs, the account is in the URL
+and the backend returns whatever account is asked for.
 """
 
 from decimal import Decimal

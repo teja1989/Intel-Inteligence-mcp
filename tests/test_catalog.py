@@ -6,7 +6,7 @@ from telco_mcp_lab.mcp_server.catalog import (
     catalog_definitions,
     catalog_hash,
 )
-from tests.conftest import server_as
+from tests.conftest import server_with
 
 
 async def test_committed_catalog_matches_live_definitions():
@@ -18,7 +18,7 @@ async def test_committed_catalog_matches_live_definitions():
 
 
 async def test_every_tool_declares_scope_and_annotations(mock_telco_factory):
-    defs = await catalog_definitions(server_as("carol", mock_telco_factory))
+    defs = await catalog_definitions(server_with(mock_telco_factory, "read", "pii:read"))
     for d in defs:
         assert d["required_scope"], d["name"]
         assert "readOnlyHint" in d["annotations"], d["name"]  # explicit, never defaulted
@@ -26,13 +26,13 @@ async def test_every_tool_declares_scope_and_annotations(mock_telco_factory):
 
 
 async def test_hash_changes_when_any_definition_changes(mock_telco_factory):
-    defs = await catalog_definitions(server_as("carol", mock_telco_factory))
+    defs = await catalog_definitions(server_with(mock_telco_factory, "read", "pii:read"))
     before = catalog_hash(defs)
     defs[0]["description"] += " "  # even whitespace in a description is a contract change
     assert catalog_hash(defs) != before and before.startswith("sha256:")
 
 
-async def test_catalog_ignores_the_callers_scopes(mock_telco_factory):
-    """The contract lists every tool, even ones a given caller can't see."""
-    defs = await catalog_definitions(server_as("mallory", mock_telco_factory))
+async def test_catalog_ignores_the_clients_scopes(mock_telco_factory):
+    """The contract lists every tool, even ones a given client can't see."""
+    defs = await catalog_definitions(server_with(mock_telco_factory, "profile"))
     assert len(defs) == 5

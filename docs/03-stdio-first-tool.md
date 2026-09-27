@@ -255,17 +255,14 @@ Things we observed about Inspector 2.8.0:
   `--`, then Inspector options** (read from its parser source, since v2 ships
   no CLI docs).
 
-## 7. ⚠️ Known gap in this phase (✅ closed in Phase 3, see docs/04)
+## 7. Identity over stdio (updated 2026-09-27, see docs/04 §3)
 
-> **Update (Phase 3):** stdio now runs as the configured `MCP_STDIO_CALLER`
-> (default alice, tenant-a), and the tenant guard applies to every tool.
-> `ACC-2001` is refused over stdio too (tested). The tool list is now 5 read tools.
-
-Nothing restricts **which** account a caller may read: `ACC-2001` (tenant B) is
-as reachable as `ACC-1001`. Over stdio there's no caller identity at all, just
-whoever launched the process. Phase 3 adds CallerContext (from the bearer
-token on HTTP; from a fixed configured identity on stdio) and the **tenant
-guard**, and turns this into a failing-then-passing security matrix.
+Over stdio there's no token, just whoever launched the process. The server runs
+with the scopes in `MCP_STDIO_SCOPES` (default `read`; add `pii:read` for unmasked
+PII). Any account can be read by ID over stdio and HTTP alike: there is no
+per-customer boundary (accepted risk, docs/08 §1.6). Phase 3 added scopes, strict
+ID checks before any backend call, masking and the audit log. The tool list is now
+5 read tools.
 
 Also still to come: masking of `holder_name`, a friendlier message for schema
 validation failures, retries and a circuit breaker, and the audit log.

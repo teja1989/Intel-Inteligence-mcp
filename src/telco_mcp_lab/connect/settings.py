@@ -1,6 +1,6 @@
 """Connector settings: environment variables TELCO_MCP_*, optionally from a --config file.
 
-The config file holds NON-secret values (URLs, client ID, customer). The secret comes
+The config file holds NON-secret values (URLs, client ID, scope). The secret comes
 from TELCO_MCP_SECRET_COMMAND (e.g. the macOS Keychain) or, for CI, the environment
 variable TELCO_MCP_CLIENT_SECRET injected by the pipeline. Never write it to a file.
 """
@@ -29,8 +29,6 @@ class ConnectSettings(BaseSettings):
     secret_command: str | None = None  # e.g. security find-generic-password -s telco-mcp -w
     scope: str | None = None  # space-separated; omitted when the token service decides
     client_auth: Literal["basic", "post"] = "basic"  # RFC 6749 client_secret_basic / _post
-    customer: str | None = Field(default=None, pattern=r"^ACC-\d{4}(,ACC-\d{4})*$")
-    customer_header: str = "X-Customer-Account-Id"
     ca_bundle: Path | None = None  # corporate root CA, if TLS is intercepted
     trust_env: bool = True  # honour HTTP(S)_PROXY / NO_PROXY for non-local targets
     refresh_margin_s: int = Field(default=300, ge=0, le=3600)  # refresh this long before expiry
@@ -46,7 +44,7 @@ class ConnectSettings(BaseSettings):
             raise ValueError("must be https (a bearer token or secret would travel in clear)")
         return v
 
-    @field_validator("client_secret", "secret_command", "customer", "scope", mode="before")
+    @field_validator("client_secret", "secret_command", "scope", mode="before")
     @classmethod
     def _blank_is_unset(cls, v: object) -> object:
         return None if isinstance(v, str) and not v.strip() else v

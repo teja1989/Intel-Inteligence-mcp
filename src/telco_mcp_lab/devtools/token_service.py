@@ -10,7 +10,7 @@ One client, configured from the environment / .env:
     DEV_TOKEN_SERVICE_SCOPES         (default "read"; a request may ask for fewer)
 
 Tokens are signed with the dev key from `make dev-keys`, so the MCP server started
-with `make mcp-http-jwt` accepts them. Binds to 127.0.0.1 only.
+with `make mcp-http` (dev keys) accepts them. Binds to 127.0.0.1 only.
 
 Mirrors the real service's contract as far as we know it; confirm the real token
 endpoint's request format (docs/07 §6) and adjust TELCO_MCP_CLIENT_AUTH to match.

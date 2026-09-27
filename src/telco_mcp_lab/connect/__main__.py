@@ -27,10 +27,9 @@ from telco_mcp_lab.connect.settings import ConnectSettings, is_local
 from telco_mcp_lab.connect.token import ClientCredentials, TokenError
 
 
-def load_settings(config: Path | None, customer: str | None) -> ConnectSettings:
-    overrides = {"customer": customer} if customer else {}
+def load_settings(config: Path | None) -> ConnectSettings:
     try:
-        return ConnectSettings(_env_file=config, **overrides)  # type: ignore[call-arg]
+        return ConnectSettings(_env_file=config)  # type: ignore[call-arg]
     except ValidationError as exc:
         # Field names and messages only: never echo input values (could be a secret).
         problems = "; ".join(f"{'.'.join(map(str, e['loc'])) or 'config'}: {e['msg']}"
@@ -40,10 +39,7 @@ def load_settings(config: Path | None, customer: str | None) -> ConnectSettings:
 
 async def headers(s: ConnectSettings) -> dict[str, str]:
     token = await ClientCredentials(s).token()
-    out = {"Authorization": f"Bearer {token}"}
-    if s.customer:
-        out[s.customer_header] = s.customer
-    return out
+    return {"Authorization": f"Bearer {token}"}
 
 
 async def check(s: ConnectSettings) -> None:
@@ -69,7 +65,6 @@ def main() -> None:
     p = argparse.ArgumentParser(prog="telco-mcp-connect", description=__doc__.split("\n\n")[0])
     p.add_argument("command", choices=["headers", "bridge", "check"])
     p.add_argument("--config", type=Path, help="dotenv file with non-secret TELCO_MCP_* values")
-    p.add_argument("--customer", help="override TELCO_MCP_CUSTOMER (ACC-1234[,ACC-…])")
     p.add_argument("--log-level", default="WARNING")
     a = p.parse_args()
     logging.basicConfig(stream=sys.stderr, level=a.log_level.upper(),
@@ -77,7 +72,7 @@ def main() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)  # it would log URLs per request
     if a.config is not None and not a.config.is_file():
         sys.exit(f"connect: config file not found: {a.config}")
-    s = load_settings(a.config, a.customer)
+    s = load_settings(a.config)
     try:
         if a.command == "headers":
             print(json.dumps(asyncio.run(headers(s))))

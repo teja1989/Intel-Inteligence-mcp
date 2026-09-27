@@ -2,31 +2,34 @@
 
 > Living list. Newest decisions at the top of each section. Each item says **why** it
 > matters and where the design notes are. Posture (2026-09-26): **internal consumers
-> only for now**; external agents parked.
+> only for now**; external agents parked. 2026-09-27: identity simplified to client +
+> scopes; the account ID is a tool argument; **no customer boundary** (docs/08 §1.6).
 
 ## Security and abuse protection (E3)
 
 - [ ] **Rate limits at two levels.** Gateway: per client_id (it supports rate limiting +
-  authentication only). MCP server: per client **and per customer**, plus a per-client
+  authentication only). MCP server: per client, plus a per-client
   concurrency cap. Shared counters in **Redis** (available as a CF service), so limits
   hold across instances. The MCP spec says servers MUST rate-limit tools.
 - [ ] **Abuse tripwires plus a kill switch.** Per client: denial ratio (probing),
-  distinct customers per hour (scraping), calls per customer. Throttle → suspend → alert.
+  **distinct accounts per hour** (scraping: the main compensating control now that
+  there's no customer boundary), calls per account. Throttle → suspend → alert.
   Needs registry **hot reload / suspend list** (today `config/clients.json` loads once
   at startup, so revoking a client needs a restart).
 - [ ] **Per-client tool allow-list** in the registry (finer than scopes).
 - [ ] **Anti-scraping limits:** pages per call and per client per day; no bulk tools.
-- [ ] **Audit → SIEM** with dashboards per client (calls, denials, distinct customers,
+- [ ] **Audit → SIEM** with dashboards per client (calls, denials, distinct accounts,
   errors, latency) and alert rules for the tripwires.
 - [ ] Catalog version gate + catalog hash in `_meta`; change notification to consumers.
 
 ## Customer context
 
-- [ ] **Replace the asserted `X-Customer-Account-Id` header with a verified customer
-  assertion** issued by the channel that verified the customer (customer auth, or the
-  human care-agent flow). Today a compromised `customer_context` client can name any
-  account. Interim: internal clients only + the distinct-customer tripwire.
-  Design notes: docs/06 §4, docs/07 §4.
+- [ ] **Revisit the "no customer boundary" decision** (docs/08 §1.6) before any external
+  consumer, customer-facing agent, or client that should see only some customers. The
+  boundary would come from a verified customer assertion issued by the channel that
+  verified the customer (customer auth, or the human care-agent flow), never from the
+  model. Interim: internal clients only + per-ID audit + the distinct-account tripwire.
+  Design notes: docs/06 §4.
 
 ## Access for people and tools (design: docs/08)
 
@@ -51,7 +54,7 @@
 - [ ] `docs/08-consumer-onboarding.md`: request template, scope review rules,
   provisioning at both gates (token service + client registry), sandbox conformance
   checklist, lifecycle (rotation, recertification, offboarding).
-- [ ] `make claude-chat CALLER=…` target + `docs/09-manual-test-plan.md` checklist
+- [ ] `docs/09-manual-test-plan.md` checklist
   (the Claude Code test plan from 2026-09-26).
 
 ## Agent harness

@@ -1,11 +1,11 @@
-"""JWT mode (MCP_AUTH_MODE=jwt): token validation, client registry, customer context.
+"""HTTP auth (always JWT): token validation, client registry, scopes.
 
 Three layers:
 * JwtTokenVerifier unit tests: every way a token must be refused, incl. the
   classic JWT attacks (alg=none, HS256 key confusion, foreign key with a known kid).
 * JWKS cache: caching, rotation, rate-limited refresh, fetch failure, settings interlocks.
 * ClientRegistry + over-the-wire tests: unregistered clients, scope intersection,
-  bound vs customer_context, the customer header, audit, health, both protocol eras.
+  any account by ID (no customer boundary, by decision), audit, health, both eras.
 """
 
 import base64
@@ -26,35 +26,26 @@ from mcp.client.streamable_http import streamable_http_client
 from pydantic import ValidationError
 
 from telco_mcp_lab.devtools.token_issuer import generate_key, jwks_for, mint
-from telco_mcp_lab.mcp_server.http_app import build_http_app
 from telco_mcp_lab.mcp_server.security.audit import AUDIT_LOGGER
-from telco_mcp_lab.mcp_server.security.clients import ClientRegistry, parse_customer_header
-from telco_mcp_lab.mcp_server.security.guard import NO_CUSTOMER
+from telco_mcp_lab.mcp_server.security.clients import ClientRegistry
 from telco_mcp_lab.mcp_server.security.jwt_verifier import JwksCache, JwtTokenVerifier
-from telco_mcp_lab.mcp_server.settings import JwtSettings, McpServerSettings
-from tests.conftest import ACCESS_MODEL, LiveServer, make_telco
+from telco_mcp_lab.mcp_server.settings import JwtSettings
+from tests.conftest import (
+    JWT_AUD,
+    JWT_ISS,
+    JWT_KEY,
+    TEST_CLIENTS,
+    LiveServer,
+    http_app_in,
+    jwt_token,
+    make_telco,
+)
 
 pytestmark = pytest.mark.security
 
-ISS = "https://token-service.test.invalid"
-AUD = "https://mcp.test.invalid/mcp"
-KEY = generate_key()
+ISS, AUD, KEY = JWT_ISS, JWT_AUD, JWT_KEY
 OTHER_KEY = generate_key()
-
-CLIENTS = {
-    "scope_map": {"read": "read", "pii:read": "pii:read", "mcp.read": "read"},
-    "clients": {
-        "care-agent": {"mode": "customer_context", "allowed_scopes": ["read"]},
-        "partner-b": {"mode": "bound", "tenant": "tenant-b", "allowed_scopes": ["read"]},
-        "ops-a": {"mode": "bound", "tenant": "tenant-a", "allowed_scopes": ["read", "pii:read"]},
-    },
-}
-
-
-def token(client: str = "partner-b", scopes: str = "read", **kw) -> str:
-    kw.setdefault("issuer", ISS)
-    kw.setdefault("audience", AUD)
-    return mint(kw.pop("key", KEY), client_id=client, scopes=scopes, **kw)
+token = jwt_token
 
 
 @pytest.fixture
@@ -93,9 +84,9 @@ class TestVerifierAccepts:
 
     async def test_client_id_from_azp_when_client_id_absent(self, verifier):
         t = mint(KEY, client_id="x", scopes="read", issuer=ISS, audience=AUD,
-                 extra={"client_id": None, "azp": "partner-b"})  # fmt: skip
+                 extra={"client_id": None, "azp": "agent-a"})  # fmt: skip
         at = await verifier.verify_token(t)
-        assert at is not None and at.client_id == "partner-b"
+        assert at is not None and at.client_id == "agent-a"
 
     async def test_audience_list_containing_ours(self, verifier):
         at = await verifier.verify_token(token(audience=[AUD, "https://other.invalid"]))
@@ -305,80 +296,36 @@ class TestJwksCache:
 @pytest.fixture
 def clients_file(tmp_path):
     path = tmp_path / "clients.json"
-    path.write_text(json.dumps(CLIENTS), encoding="utf-8")
+    path.write_text(json.dumps(TEST_CLIENTS), encoding="utf-8")
     return path
 
 
 @pytest.fixture
 def registry(clients_file) -> ClientRegistry:
-    return ClientRegistry.load(clients_file, ACCESS_MODEL)
+    return ClientRegistry.load(clients_file)
 
 
 class TestRegistry:
-    def test_unregistered_client_gets_no_caller(self, registry):
-        assert registry.context_for("stranger", ["read"], None) is None
+    def test_unregistered_client_gets_nothing(self, registry):
+        assert registry.context_for("stranger", ["read"]) is None
 
     def test_scopes_are_token_intersect_allowed(self, registry):
-        c = registry.context_for("partner-b", ["read", "pii:read", "order:submit"], None)
-        assert c is not None and c.scopes == {"read"}
+        c = registry.context_for("agent-a", ["read", "pii:read", "order:submit"])
+        assert c is not None and c.scopes == {"read"} and c.via == "http"
 
     def test_unknown_token_scopes_ignored_and_mapped_names_work(self, registry):
-        c = registry.context_for("partner-b", ["mcp.read", "admin"], None)
+        c = registry.context_for("agent-a", ["mcp.read", "admin"])
         assert c is not None and c.scopes == {"read"}
 
-    def test_bound_client_ignores_customer_header(self, registry):
-        c = registry.context_for("partner-b", ["read"], "ACC-1001")
-        assert c is not None and c.account_ids == {"ACC-2001"} and c.customer is None
-
-    def test_customer_context_from_header(self, registry):
-        c = registry.context_for("care-agent", ["read"], "ACC-1001, ACC-1002")
-        assert c is not None and c.account_ids == {"ACC-1001", "ACC-1002"}
-        assert c.customer == "ACC-1001,ACC-1002"
-
-    def test_customer_context_without_header_has_no_accounts(self, registry):
-        c = registry.context_for("care-agent", ["read"], None)
-        assert c is not None and c.account_ids == frozenset()
-
-    @pytest.mark.parametrize(
-        "value, expected",
-        [
-            (None, frozenset()),
-            ("", frozenset()),
-            ("ACC-1001", {"ACC-1001"}),
-            ("ACC-1001,acc-1002", None),
-            ("ACC-1001\nX-Injected: 1", None),
-            ("ACC-1001;DROP", None),
-            (",".join(f"ACC-{1000 + i}" for i in range(11)), None),
-            ("!", None),  # what the middleware passes for a repeated header
-        ],
-    )
-    def test_customer_header_parsing(self, value, expected):
-        assert parse_customer_header(value) == expected
-
-    def test_bound_client_with_unknown_tenant_refused_at_load(self, tmp_path):
-        bad = {"clients": {"x": {"mode": "bound", "tenant": "nope", "allowed_scopes": []}}}
-        path = tmp_path / "c.json"
-        path.write_text(json.dumps(bad))
-        with pytest.raises(ValueError, match="unknown tenant"):
-            ClientRegistry.load(path, ACCESS_MODEL)
-
     def test_repo_clients_config_loads(self):
-        ClientRegistry.load(Path(__file__).parents[2] / "config" / "clients.json", ACCESS_MODEL)
+        r = ClientRegistry.load(Path(__file__).parents[2] / "config" / "clients.json")
+        assert "lowerenv-shared" in r.allowed
 
 
 # --------------------------------------------------------------- over the wire (HTTP)
 @pytest.fixture
-def jwt_mcp_url(live_gateway, jwt_settings, clients_file):
-    settings = McpServerSettings(
-        _env_file=None, auth_mode="jwt", clients_config=clients_file, public_url=AUD
-    )
-    app = build_http_app(
-        settings,
-        ACCESS_MODEL,
-        {},
-        jwt_settings=jwt_settings,
-        telco_factory=lambda: make_telco(base_url=live_gateway),
-    )
+def jwt_mcp_url(live_gateway, tmp_path):
+    app = http_app_in(tmp_path, lambda: make_telco(base_url=live_gateway))
     with LiveServer(app) as srv:
         yield srv.url
 
@@ -439,90 +386,63 @@ class TestJwtOverHttp:
         assert body["resource"] == AUD
         assert ISS in [s.rstrip("/") for s in body["authorization_servers"]]
 
-    def test_bound_client_sees_only_its_tenant(self, jwt_mcp_url):
-        h = bearer(token("partner-b"))
-        ok = call(jwt_mcp_url, "get_account_summary", {}, h)
-        assert not ok["isError"] and ok["structuredContent"]["account_id"] == "ACC-2001"
-        denied = call(jwt_mcp_url, "get_account_summary", {"account_id": "ACC-1001"}, h)
-        assert denied["isError"] and "No account with that ID" in text(denied)
+    def test_any_account_by_id_no_customer_boundary(self, jwt_mcp_url):
+        """Decision 2026-09-27: the account comes from the tool argument. Pinned so a
+        change to this (e.g. adding a boundary back) is a visible, deliberate one."""
+        h = bearer(token())
+        for acc in ("ACC-1001", "ACC-2001"):
+            r = call(jwt_mcp_url, "get_account_summary", {"account_id": acc}, h)
+            assert not r["isError"] and r["structuredContent"]["account_id"] == acc
 
-    def test_bound_client_cannot_widen_itself_with_the_header(self, jwt_mcp_url):
-        h = bearer(token("partner-b")) + [("X-Customer-Account-Id", "ACC-1001")]
-        r = call(jwt_mcp_url, "get_account_summary", {"account_id": "ACC-1001"}, h)
-        assert r["isError"]
-
-    def test_customer_context_client_acts_for_the_header_account_only(self, jwt_mcp_url):
-        h = bearer(token("care-agent")) + [("X-Customer-Account-Id", "ACC-1002")]
-        ok = call(jwt_mcp_url, "get_account_summary", {}, h)
-        assert not ok["isError"] and ok["structuredContent"]["account_id"] == "ACC-1002"
-        # The model asking for another customer's account gets "not found".
-        other = call(jwt_mcp_url, "get_account_summary", {"account_id": "ACC-1001"}, h)
-        assert other["isError"] and "No account with that ID" in text(other)
-        order = call(jwt_mcp_url, "get_order_status", {"order_id": "ORD-000456"}, h)
-        assert order["isError"]
-
-    @pytest.mark.parametrize(
-        "headers",
-        [
-            pytest.param([], id="no-header"),
-            pytest.param([("X-Customer-Account-Id", "ACC-1001 OR 1=1")], id="malformed"),
-            pytest.param(
-                [("X-Customer-Account-Id", "ACC-1001"), ("X-Customer-Account-Id", "ACC-2001")],
-                id="repeated",
-            ),
-        ],
-    )
-    def test_customer_context_client_without_valid_header_sees_nothing(self, jwt_mcp_url, headers):
-        h = bearer(token("care-agent")) + headers
-        for tool, args in [
-            ("get_account_summary", {"account_id": "ACC-1001"}),
-            ("list_orders", {}),
-            ("get_order_status", {"order_id": "ORD-000123"}),
-        ]:
-            r = call(jwt_mcp_url, tool, args, h)
-            assert r["isError"] and NO_CUSTOMER in text(r), tool
+    def test_account_id_is_required_and_format_checked(self, jwt_mcp_url):
+        h = bearer(token())
+        for args in ({}, {"account_id": "ACC-1001/../../admin"}, {"account_id": "acc-1001"}):
+            r = call(jwt_mcp_url, "get_account_summary", args, h)
+            assert r["isError"], args
 
     def test_unregistered_client_sees_no_tools(self, jwt_mcp_url, caplog):
         caplog.set_level(logging.INFO, logger=AUDIT_LOGGER)
         h = bearer(token("stranger"))
         r = rpc(jwt_mcp_url, "tools/list", {}, h)
         assert r.status_code == 200 and r.json()["result"]["tools"] == []
-        denied = call(jwt_mcp_url, "list_orders", {}, h)
+        denied = call(jwt_mcp_url, "list_orders", {"account_id": "ACC-1001"}, h)
         assert denied["isError"] and "Unknown tool: list_orders" in text(denied)
         (line,) = [json.loads(r.message) for r in caplog.records if r.name == AUDIT_LOGGER]
-        assert line["caller"] == "stranger" and line["tenant"] is None
-        assert line["outcome"] == "denied"
+        assert line["client"] == "stranger" and line["outcome"] == "denied"
 
     def test_token_without_read_scope_sees_no_tools(self, jwt_mcp_url):
-        r = rpc(jwt_mcp_url, "tools/list", {}, bearer(token("partner-b", scopes="profile")))
+        r = rpc(jwt_mcp_url, "tools/list", {}, bearer(token(scopes="profile")))
         assert r.json()["result"]["tools"] == []
 
     def test_pii_needs_scope_in_token_and_registry(self, jwt_mcp_url):
         masked = call(jwt_mcp_url, "list_subscriptions", {"account_id": "ACC-1001", "limit": 1},
-                      bearer(token("ops-a", scopes="read")))  # fmt: skip
+                      bearer(token("care-agent", scopes="read")))  # fmt: skip
         full = call(jwt_mcp_url, "list_subscriptions", {"account_id": "ACC-1001", "limit": 1},
-                    bearer(token("ops-a", scopes="read pii:read")))  # fmt: skip
+                    bearer(token("care-agent", scopes="read pii:read")))  # fmt: skip
         m = masked["structuredContent"]["items"][0]["msisdn"]
         f = full["structuredContent"]["items"][0]["msisdn"]
         assert "*" in m and "*" not in f
 
-    def test_audit_records_client_and_customer(self, jwt_mcp_url, caplog):
+    def test_pii_scope_in_token_but_not_registry_stays_masked(self, jwt_mcp_url):
+        r = call(jwt_mcp_url, "list_subscriptions", {"account_id": "ACC-1001", "limit": 1},
+                 bearer(token("agent-a", scopes="read pii:read")))  # fmt: skip
+        assert "*" in r["structuredContent"]["items"][0]["msisdn"]
+
+    def test_audit_records_client_and_account(self, jwt_mcp_url, caplog):
         caplog.set_level(logging.INFO, logger=AUDIT_LOGGER)
-        h = bearer(token("care-agent")) + [("X-Customer-Account-Id", "ACC-1002")]
-        call(jwt_mcp_url, "get_account_summary", {}, h)
+        call(jwt_mcp_url, "get_account_summary", {"account_id": "ACC-1002"}, bearer(token()))
         (line,) = [json.loads(r.message) for r in caplog.records if r.name == AUDIT_LOGGER]
-        assert line["caller"] == "care-agent" and line["customer"] == "ACC-1002"
-        assert line["outcome"] == "ok"
+        assert line["client"] == "agent-a" and line["via"] == "http"
+        assert line["resources"] == {"account_id": "ACC-1002"} and line["outcome"] == "ok"
 
     @pytest.mark.parametrize("mode", ["auto", "legacy"])
     async def test_sdk_client_both_eras(self, jwt_mcp_url, mode):
-        headers = {"Authorization": f"Bearer {token('care-agent')}",
-                   "X-Customer-Account-Id": "ACC-1001"}  # fmt: skip
+        headers = {"Authorization": f"Bearer {token()}"}
         async with (
             httpx2.AsyncClient(headers=headers) as h,
             Client(streamable_http_client(jwt_mcp_url + "/mcp", http_client=h), mode=mode) as c,
         ):
             tools = {t.name for t in (await c.list_tools()).tools}
             assert "get_account_summary" in tools
-            r = await c.call_tool("get_account_summary", {})
+            r = await c.call_tool("get_account_summary", {"account_id": "ACC-1001"})
             assert not r.is_error and r.structured_content["account_id"] == "ACC-1001"

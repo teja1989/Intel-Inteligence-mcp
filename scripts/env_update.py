@@ -13,6 +13,13 @@ import time
 from pathlib import Path
 
 LINE = re.compile(r"^([A-Z][A-Z0-9_]*)=(.*)$")
+# Settings an older .env may still have, no longer read by anything (2026-09-27:
+# callers/tenants/customer header removed). Reported, never deleted: the file is yours.
+RETIRED = {
+    "MCP_TOKEN_ALICE", "MCP_TOKEN_BOB", "MCP_TOKEN_CAROL", "MCP_TOKEN_MALLORY",
+    "MCP_STDIO_CALLER", "MCP_ACCESS_CONFIG", "MCP_AUTH_MODE", "MCP_CUSTOMER_HEADER",
+    "HARNESS_CALLER", "HARNESS_CUSTOMER_ACCOUNT_ID",
+}  # fmt: skip
 
 
 def keys(path: Path) -> dict[str, str]:
@@ -28,7 +35,10 @@ def main() -> int:
     if not env.exists():
         print(".env not found: run `make env` first")
         return 1
-    missing = {k: v for k, v in keys(example).items() if k not in keys(env)}
+    present = keys(env)
+    missing = {k: v for k, v in keys(example).items() if k not in present}
+    if retired := sorted(RETIRED & set(present)):
+        print(f"ℹ️  .env has settings that are no longer used; delete them: {', '.join(retired)}")
     if "--check" in sys.argv:
         if missing:
             print(f"⚠️  .env lacks {len(missing)} setting(s) from .env.example "

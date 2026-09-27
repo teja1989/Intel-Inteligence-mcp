@@ -8,7 +8,7 @@ from mcp import Client
 from telco_mcp_lab.gateway_routes import DomainApi
 from telco_mcp_lab.mcp_server.clients.resilience import BreakerState, CircuitBreaker, RetryPolicy
 from telco_mcp_lab.mcp_server.clients.telco import GatewayError, GatewayUnavailable
-from tests.conftest import GATEWAY_URL, TEST_TOKEN, make_telco, server_as
+from tests.conftest import GATEWAY_URL, TEST_TOKEN, make_telco, server_with
 
 ORDER_URL = f"{GATEWAY_URL}/boorder/API/order/ORD-000123"
 NO_WAIT = RetryPolicy(max_attempts=2, base_delay_s=0.0, max_delay_s=0.0)
@@ -126,7 +126,7 @@ class TestTimeoutEndToEnd:
             )
             resp.raise_for_status()
         factory = lambda: make_telco(base_url=live_gateway, read_timeout_s=0.3)  # noqa: E731
-        async with Client(server_as("alice", factory)) as c:
+        async with Client(server_with(factory)) as c:
             r = await c.call_tool("get_order_status", {"order_id": "ORD-000123"})
         assert r.is_error
         assert "did not respond in time" in r.content[0].text

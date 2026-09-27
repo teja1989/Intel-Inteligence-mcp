@@ -10,7 +10,7 @@ from telco_mcp_lab.mcp_server.security.audit import AUDIT_LOGGER
 from telco_mcp_lab.mcp_server.shaping.free_text import looks_like_injection, shape_free_text
 from telco_mcp_lab.mcp_server.shaping.pii import mask_msisdn, mask_name
 from telco_mcp_lab.mock_apis.data import INJECTED_NOTE
-from tests.conftest import server_as
+from tests.conftest import server_with
 
 READ_TOOLS = {
     "get_account_summary",
@@ -25,18 +25,18 @@ READ_TOOLS = {
 @pytest.mark.security
 class TestScopes:
     async def test_reader_sees_read_tools(self, mock_telco_factory):
-        async with Client(server_as("alice", mock_telco_factory)) as c:
+        async with Client(server_with(mock_telco_factory)) as c:
             assert {t.name for t in (await c.list_tools()).tools} == READ_TOOLS
 
     async def test_no_scopes_means_no_tools(self, mock_telco_factory):
-        async with Client(server_as("mallory", mock_telco_factory)) as c:
+        async with Client(server_with(mock_telco_factory, "profile")) as c:
             assert (await c.list_tools()).tools == []
 
     @pytest.mark.parametrize("tool", sorted(READ_TOOLS))
     async def test_hidden_tool_cannot_be_called_and_looks_nonexistent(
         self, tool, mock_telco_factory
     ):
-        async with Client(server_as("mallory", mock_telco_factory)) as c:
+        async with Client(server_with(mock_telco_factory, "profile")) as c:
             hidden = await c.call_tool(tool, {})
             missing = await c.call_tool("no_such_tool", {})
         assert hidden.is_error
@@ -44,7 +44,7 @@ class TestScopes:
         assert missing.content[0].text == "Unknown tool: no_such_tool"  # same shape
 
     async def test_tool_without_declared_scope_is_hidden_from_everyone(self, mock_telco_factory):
-        server = server_as("carol", mock_telco_factory)
+        server = server_with(mock_telco_factory, "read", "pii:read")
 
         @server.tool(name="forgot_scope")
         async def forgot_scope() -> str:
@@ -64,16 +64,16 @@ class TestPii:
     @pytest.mark.security
     async def test_masked_by_default_unmasked_with_pii_scope(self, mock_telco_factory):
         args = {"account_id": "ACC-1001", "status": "ACTIVE"}
-        async with Client(server_as("alice", mock_telco_factory)) as c:
+        async with Client(server_with(mock_telco_factory)) as c:
             masked = (await c.call_tool("list_subscriptions", args)).structured_content
-        async with Client(server_as("carol", mock_telco_factory)) as c:
+        async with Client(server_with(mock_telco_factory, "read", "pii:read")) as c:
             clear = (await c.call_tool("list_subscriptions", args)).structured_content
         assert masked["items"][0]["msisdn"] == "+44*******111"
         assert clear["items"][0]["msisdn"] == "+447700900111"
 
     @pytest.mark.security
     async def test_line_details_never_expose_imsi_or_iccid(self, mock_telco_factory):
-        async with Client(server_as("carol", mock_telco_factory)) as c:  # even with pii:read
+        async with Client(server_with(mock_telco_factory, "read", "pii:read")) as c:
             r = await c.call_tool("get_service_details", {"subscription_id": "SUB-1001-01"})
         wire = json.dumps(r.structured_content)
         assert "00101" not in wire and "8900101" not in wire
@@ -117,9 +117,9 @@ class TestFreeText:
 
     async def test_before_and_after_through_the_real_tool(self, mock_telco_factory):
         """The same backend note, as the model would see it, raw vs shaped."""
-        async with Client(server_as("alice", mock_telco_factory, unsafe_raw_free_text=True)) as c:
+        async with Client(server_with(mock_telco_factory, unsafe_raw_free_text=True)) as c:
             before = await c.call_tool("get_account_summary", {"account_id": "ACC-1001"})
-        async with Client(server_as("alice", mock_telco_factory)) as c:
+        async with Client(server_with(mock_telco_factory)) as c:
             after = await c.call_tool("get_account_summary", {"account_id": "ACC-1001"})
         assert "ignore previous instructions" in before.structured_content["notes"]["text"]
         assert after.structured_content["notes"]["withheld"] is True
@@ -131,39 +131,37 @@ class TestFreeText:
 class TestAudit:
     async def test_one_line_per_call_with_metadata_only(self, caplog, mock_telco_factory):
         caplog.set_level(logging.INFO, logger=AUDIT_LOGGER)
-        async with Client(server_as("alice", mock_telco_factory)) as c:
+        async with Client(server_with(mock_telco_factory)) as c:
             await c.call_tool("get_account_summary", {"account_id": "ACC-1001"})  # ok
-            await c.call_tool("get_account_summary", {"account_id": "ACC-2001"})  # denied
             await c.call_tool("get_order_status", {"order_id": "ORD-999999"})  # tool_error
-            await c.call_tool("get_order_status", {"order_id": "bad"})  # tool_error (args)
+            await c.call_tool("get_order_status", {"order_id": "bad ORD-1"})  # tool_error (args)
         lines = [json.loads(r.message) for r in caplog.records if r.name == AUDIT_LOGGER]
-        assert [(e["tool"], e["outcome"]) for e in lines] == [
-            ("get_account_summary", "ok"),
-            ("get_account_summary", "denied"),
-            ("get_order_status", "tool_error"),
-            ("get_order_status", "tool_error"),
+        assert [(e["tool"], e["outcome"], e["resources"]) for e in lines] == [
+            ("get_account_summary", "ok", {"account_id": "ACC-1001"}),
+            ("get_order_status", "tool_error", {"order_id": "ORD-999999"}),
+            ("get_order_status", "tool_error", {}),  # malformed IDs are never recorded
         ]
         for e in lines:
             assert set(e) == {
-                "event", "tool", "caller", "tenant", "via", "customer", "outcome", "latency_ms"
+                "event", "tool", "client", "via", "resources", "outcome", "latency_ms"
             }  # fmt: skip
-            assert e["caller"] == "alice" and e["tenant"] == "tenant-a"
-            assert e["customer"] is None  # only customer_context clients (JWT mode) have one
+            assert e["client"] == "test" and e["via"] == "in-process"
         raw = " ".join(r.message for r in caplog.records if r.name == AUDIT_LOGGER)
-        for payload in ("ACC-", "ORD-", "Alex", "ignore previous", "+44"):
-            assert payload not in raw
+        for payload in ("Alex", "ignore previous", "+44", "Standard", "bad ORD"):
+            assert payload not in raw  # results and rejected values are never logged
 
     async def test_hidden_tool_attempt_is_audited_as_denied(self, caplog, mock_telco_factory):
         caplog.set_level(logging.INFO, logger=AUDIT_LOGGER)
-        async with Client(server_as("mallory", mock_telco_factory)) as c:
-            await c.call_tool("list_orders", {})
+        async with Client(server_with(mock_telco_factory, "profile")) as c:
+            await c.call_tool("list_orders", {"account_id": "ACC-1001"})
         (line,) = [json.loads(r.message) for r in caplog.records if r.name == AUDIT_LOGGER]
-        assert line["outcome"] == "denied" and line["caller"] == "mallory"
+        assert line["outcome"] == "denied" and line["client"] == "test"
+        assert line["resources"] == {"account_id": "ACC-1001"}  # probing is visible too
 
 
 class TestFriendlyValidation:
     async def test_arg_errors_name_the_field_and_rule_not_the_value(self, mock_telco_factory):
-        async with Client(server_as("alice", mock_telco_factory)) as c:
+        async with Client(server_with(mock_telco_factory)) as c:
             r = await c.call_tool("get_order_status", {"order_id": "order one two three"})
         msg = r.content[0].text
         assert r.is_error
@@ -172,13 +170,13 @@ class TestFriendlyValidation:
         assert "errors.pydantic.dev" not in msg
 
 
-class TestCrashesAreNotBlamedOnTheCaller:
+class TestCrashesAreNotBlamedOnTheClient:
     async def test_bug_in_tool_is_audited_as_error_not_invalid_arguments(
         self, caplog, mock_telco_factory
     ):
         from pydantic import BaseModel
 
-        server = server_as("alice", mock_telco_factory)
+        server = server_with(mock_telco_factory)
 
         class Out(BaseModel):
             n: int
@@ -187,7 +185,7 @@ class TestCrashesAreNotBlamedOnTheCaller:
 
         @server.tool(name="buggy")
         async def buggy() -> Out:
-            return Out.model_validate({"n": "not a number"})  # our bug, not the caller's
+            return Out.model_validate({"n": "not a number"})  # our bug, not the client's
 
         caplog.set_level(logging.INFO, logger=AUDIT_LOGGER)
         async with Client(server) as c:

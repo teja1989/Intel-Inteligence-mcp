@@ -11,11 +11,11 @@ from telco_mcp_lab.mcp_server.clients.telco import GatewayError, GatewayUnavaila
 from telco_mcp_lab.mcp_server.errors.tool_errors import to_tool_error
 
 AccountIdArg = Annotated[
-    str | None,
+    str,
     Field(
         pattern=ids.ACCOUNT_ID,
-        description="Optional. Which of the user's accounts, e.g. ACC-1001. Omit it when the "
-        "user has one account. It only selects among the user's OWN accounts.",
+        description="The account ID, e.g. ACC-1001. Use the ID the user gave you or one "
+        "returned by a tool; never guess or invent one.",
         examples=["ACC-1001"],
     ),
 ]

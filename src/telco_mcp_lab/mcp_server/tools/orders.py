@@ -4,9 +4,8 @@ from mcp.server.mcpserver import Context
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from telco_mcp_lab.mcp_server.security.caller import Scope
-from telco_mcp_lab.mcp_server.security.guard import ensure_owned, resolve_account
-from telco_mcp_lab.mcp_server.security.scoped_server import ScopedMCPServer, current_caller
+from telco_mcp_lab.mcp_server.security.clients import Scope
+from telco_mcp_lab.mcp_server.security.scoped_server import ScopedMCPServer
 from telco_mcp_lab.mcp_server.state import app_state
 from telco_mcp_lab.mcp_server.tools.common import (
     AccountIdArg,
@@ -44,7 +43,7 @@ If the user doesn't know the ID, use list_orders instead.
 """
 
 LIST_DESCRIPTION = """\
-List the user's orders, newest first (read-only). Paginated.
+List an account's orders, newest first (read-only). Paginated. Needs the account_id.
 
 Use this for "what orders do I have?", "did I change anything recently?", or
 to find an order ID. For one known order, prefer get_order_status.
@@ -74,10 +73,9 @@ def register(mcp: ScopedMCPServer) -> None:
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
     )
     async def get_order_status(ctx: Context, order_id: OrderIdArg) -> Order:
-        caller = current_caller()
         async with gateway_errors():
             order = await app_state(ctx).telco.get_order(order_id)
-        return _order(ensure_owned(caller, order, "order", "ORD-000123"))
+        return _order(order)
 
     @mcp.tool(
         name="list_orders",
@@ -87,16 +85,14 @@ def register(mcp: ScopedMCPServer) -> None:
     )
     async def list_orders(
         ctx: Context,
-        account_id: AccountIdArg = None,
+        account_id: AccountIdArg,
         limit: LimitArg = 10,
         cursor: CursorArg = None,
     ) -> OrderPage:
-        caller = current_caller()
-        account_id = resolve_account(caller, account_id)
         async with gateway_errors():
             page = await app_state(ctx).telco.list_orders(account_id, limit, cursor)
         return OrderPage(
             account_id=account_id,
-            items=[_order(o) for o in page["items"] if o.get("account_id") in caller.account_ids],
+            items=[_order(o) for o in page["items"] if o.get("account_id") == account_id],
             next_cursor=page.get("next_cursor"),
         )

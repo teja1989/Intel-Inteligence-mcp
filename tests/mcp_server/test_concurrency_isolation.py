@@ -1,4 +1,9 @@
-"""Cross-customer isolation under concurrency: many interleaved requests, 2 replicas.
+"""Per-request isolation under concurrency: many interleaved requests, 2 replicas.
+
+With no customer boundary, what must never bleed between requests is:
+  * the CLIENT (and so its scopes): a read-only client must never get unmasked PII
+    because a pii:read client's request was in flight at the same time;
+  * the ACCOUNT: every result is for the account that request asked for.
 
 Sequential tests can't catch the classic bleed bug (request state kept somewhere
 shared instead of per request): only interleaving shows it. The canary test
@@ -7,7 +12,6 @@ silently lose its teeth.
 """
 
 import asyncio
-import json
 import random
 from contextlib import ExitStack
 
@@ -15,59 +19,54 @@ import httpx
 import pytest
 
 from telco_mcp_lab.devtools.round_robin_lb import build_app as build_lb
-from telco_mcp_lab.devtools.token_issuer import generate_key, jwks_for, mint
-from telco_mcp_lab.mcp_server.http_app import build_http_app
-from telco_mcp_lab.mcp_server.security import clients as clients_module
-from telco_mcp_lab.mcp_server.settings import JwtSettings, McpServerSettings
-from tests.conftest import ACCESS_MODEL, LiveServer, make_telco
+from telco_mcp_lab.mcp_server.security import scoped_server
+from tests.conftest import LiveServer, http_app_in, jwt_token, make_telco
 
 pytestmark = [pytest.mark.security, pytest.mark.protocol, pytest.mark.slow]
 
-ISS, AUD = "https://ts.invalid", "https://mcp.invalid/mcp"
-KEY = generate_key()
-CUSTOMERS = ["ACC-1001", "ACC-1002", "ACC-2001"]
-TOOLS = [("get_account_summary", {}), ("list_subscriptions", {}), ("list_orders", {})]
+ACCOUNTS = ["ACC-1001", "ACC-1002", "ACC-2001"]
+# client -> may it see unmasked PII (see TEST_CLIENTS in conftest)
+CLIENTS = {"agent-a": ("read", False), "care-agent": ("read pii:read", True)}
+TOOLS = ["get_account_summary", "list_subscriptions", "list_orders"]
 META = {
     "io.modelcontextprotocol/protocolVersion": "2026-07-28",
     "io.modelcontextprotocol/clientCapabilities": {},
 }
+TOKENS = {c: jwt_token(c, scopes) for c, (scopes, _) in CLIENTS.items()}
 
 
 @pytest.fixture
 def cluster_url(live_gateway, tmp_path):
-    (tmp_path / "jwks.json").write_text(json.dumps(jwks_for(KEY)))
-    (tmp_path / "clients.json").write_text(json.dumps({
-        "scope_map": {"read": "read"},
-        "clients": {"care": {"mode": "customer_context", "allowed_scopes": ["read"]}},
-    }))  # fmt: skip
-    settings = McpServerSettings(
-        _env_file=None, auth_mode="jwt", clients_config=tmp_path / "clients.json", public_url=AUD
-    )
-    js = JwtSettings(_env_file=None, issuer=ISS, audience=AUD, jwks_file=tmp_path / "jwks.json")
-
-    def replica():
-        return build_http_app(settings, ACCESS_MODEL, {}, jwt_settings=js,
-                              telco_factory=lambda: make_telco(base_url=live_gateway))  # fmt: skip
+    def replica(i: int):
+        d = tmp_path / f"r{i}"
+        d.mkdir()
+        return http_app_in(d, lambda: make_telco(base_url=live_gateway))
 
     with ExitStack() as stack:
-        urls = [stack.enter_context(LiveServer(replica())).url for _ in range(2)]
+        urls = [stack.enter_context(LiveServer(replica(i))).url for i in range(2)]
         yield stack.enter_context(LiveServer(build_lb(urls))).url + "/mcp"
 
 
+def pii_values(content: dict) -> list[str]:
+    values = [content.get("holder_name")]
+    values += [s.get("msisdn") for s in content.get("subscriptions", []) if isinstance(s, dict)]
+    values += [s.get("msisdn") for s in content.get("items", []) if isinstance(s, dict)]
+    return [v for v in values if isinstance(v, str)]
+
+
 async def one(client: httpx.AsyncClient, url: str, i: int) -> tuple[str, str]:
-    customer = random.choice(CUSTOMERS)  # noqa: S311
-    tool, args = random.choice(TOOLS)  # noqa: S311
-    token = mint(KEY, client_id="care", scopes="read", issuer=ISS, audience=AUD)
+    who = random.choice(list(CLIENTS))  # noqa: S311
+    account = random.choice(ACCOUNTS)  # noqa: S311
+    tool = random.choice(TOOLS)  # noqa: S311
     headers = {
-        "Authorization": f"Bearer {token}",
-        "X-Customer-Account-Id": customer,
+        "Authorization": f"Bearer {TOKENS[who]}",
         "Accept": "application/json, text/event-stream",
         "MCP-Protocol-Version": "2026-07-28",
         "Mcp-Method": "tools/call",
         "Mcp-Name": tool,
-    }  # fmt: skip
-    body = {"jsonrpc": "2.0", "id": i, "method": "tools/call",
-            "params": {"name": tool, "arguments": args, "_meta": META}}  # fmt: skip
+    }
+    params = {"name": tool, "arguments": {"account_id": account}, "_meta": META}
+    body = {"jsonrpc": "2.0", "id": i, "method": "tools/call", "params": params}
     try:
         r = await client.post(url, json=body, headers=headers)
     except httpx.HTTPError as exc:
@@ -80,7 +79,13 @@ async def one(client: httpx.AsyncClient, url: str, i: int) -> tuple[str, str]:
         o.get("account_id") for o in content.get("items", []) if isinstance(o, dict)
     }
     seen.discard(None)
-    return ("ok", customer) if seen <= {customer} else ("BLEED", f"{customer} got {sorted(seen)}")
+    if seen != {account}:
+        return "BLEED", f"asked {account}, got {sorted(seen)}"
+    unmasked_expected = CLIENTS[who][1]
+    for v in pii_values(content):
+        if ("*" not in v) != unmasked_expected:
+            return "BLEED", f"{who} got {'unmasked' if '*' not in v else 'masked'} PII"
+    return "ok", who
 
 
 def probe(url: str, n: int) -> list[tuple[str, str]]:
@@ -92,12 +97,12 @@ def probe(url: str, n: int) -> list[tuple[str, str]]:
     return asyncio.run(run())
 
 
-def test_no_cross_customer_bleed_under_concurrency(cluster_url):
+def test_no_client_or_account_bleed_under_concurrency(cluster_url):
     results = probe(cluster_url, 200)
     bleed = [r for r in results if r[0] == "BLEED"]
     errors = [r for r in results if r[0] == "error"]
     assert not bleed, bleed[:3]
-    assert not errors, errors[:3]  # every customer here is valid: any tool error is a bug
+    assert not errors, errors[:3]  # every account here is valid: any tool error is a bug
     # Transport errors say nothing about isolation, but must stay rare (tracked separately).
     assert sum(r[0] == "ok" for r in results) >= 195
 
@@ -119,6 +124,6 @@ class _SharedNotPerRequest:
 
 
 def test_canary_probe_detects_shared_request_state(cluster_url, monkeypatch):
-    monkeypatch.setattr(clients_module, "_customer_header", _SharedNotPerRequest())
+    monkeypatch.setattr(scoped_server, "_current_client", _SharedNotPerRequest())
     results = probe(cluster_url, 200)
     assert any(r[0] == "BLEED" for r in results), "probe failed to detect a planted bleed bug"

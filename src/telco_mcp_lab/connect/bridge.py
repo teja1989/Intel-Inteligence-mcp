@@ -5,7 +5,6 @@ JSON-RPC message it writes is POSTed, unchanged, to the remote endpoint, with:
 
 * `Authorization: Bearer <token>`: from the client-credentials source, refreshed
   before expiry; on a 401 the bridge gets a new token and retries ONCE.
-* The customer header, if configured (set by the developer's config, never by a model).
 * The protocol's per-message HTTP headers (`MCP-Protocol-Version`, and for 2026-07-28
   `Mcp-Method`, `Mcp-Name`, `Mcp-Param-*`), computed with the SDK's own helpers so
   the bridge can't drift from what the SDK client sends.
@@ -75,8 +74,6 @@ class Bridge:
     # ------------------------------------------------------------------ outbound
     def headers_for(self, msg: dict[str, Any]) -> dict[str, str]:
         h = {"accept": "application/json, text/event-stream", "content-type": "application/json"}
-        if self._s.customer:
-            h[self._s.customer_header] = self._s.customer
         if self._session_id:
             h[SESSION_HEADER] = self._session_id
         method = msg.get("method")

@@ -1,11 +1,11 @@
-"""MCPServer with per-caller tool visibility, enforcement, audit and clean arg errors.
+"""MCPServer with per-client tool visibility, enforcement, audit and clean arg errors.
 
 We override the two *public* MCPServer methods every request goes through:
 
-* `list_tools()`: return only the tools the caller's scopes allow. The
+* `list_tools()`: return only the tools the client's scopes allow. The
   2026-07-28 spec explicitly permits this: "The set MAY vary by the
   authorization presented on the request". The SDK's default
-  `cacheScope: "private"` stops the filtered list being shared across callers.
+  `cacheScope: "private"` stops the filtered list being shared across clients.
 * `call_tool()`: enforce the SAME rule. Filtering the list is UX, not
   security: a client can call a tool name it was never shown. A hidden tool
   answers exactly like a nonexistent one ("Unknown tool: …"), so its existence
@@ -34,76 +34,72 @@ from mcp.types import CallToolResult, InputRequiredResult
 from mcp.types import Tool as MCPTool
 from pydantic import ValidationError
 
-from telco_mcp_lab.mcp_server.security.audit import audit_tool_call
-from telco_mcp_lab.mcp_server.security.caller import AccessModel, CallerContext, resolve_caller
-from telco_mcp_lab.mcp_server.security.clients import ClientRegistry
-from telco_mcp_lab.mcp_server.security.guard import AccessDenied
+from telco_mcp_lab.mcp_server.security.audit import audit_tool_call, resource_ids
+from telco_mcp_lab.mcp_server.security.clients import ClientContext, ClientRegistry, resolve_client
 
-_current_caller: ContextVar[CallerContext | None] = ContextVar("current_caller", default=None)
+_current_client: ContextVar[ClientContext | None] = ContextVar("current_client", default=None)
 
 
-def current_caller() -> CallerContext:
-    """The caller of the tool call in progress. Tools use this and nothing else."""
-    caller = _current_caller.get()
-    if caller is None:  # can't happen via call_tool(); fail closed if it ever does
-        raise AccessDenied("Not authorised.")
-    return caller
+def current_client() -> ClientContext:
+    """The client of the tool call in progress. Tools use this and nothing else."""
+    client = _current_client.get()
+    if client is None:  # can't happen via call_tool(); fail closed if it ever does
+        raise ToolError("Not authorised.")
+    return client
 
 
 class ScopedMCPServer(MCPServer[Any]):
     def __init__(
         self,
         *args: Any,
-        access_model: AccessModel,
-        fallback_caller: CallerContext | None = None,
         client_registry: ClientRegistry | None = None,
+        fallback_client: ClientContext | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
-        self.access_model = access_model
-        self.fallback_caller = fallback_caller
         self.client_registry = client_registry
+        self.fallback_client = fallback_client
         self.tool_scopes: dict[str, str] = {}
 
     def require_scope(self, tool_name: str, scope: str) -> None:
         self.tool_scopes[tool_name] = scope
 
-    def _caller(self) -> CallerContext | None:
-        return resolve_caller(self.access_model, self.fallback_caller, self.client_registry)
+    def _client(self) -> ClientContext | None:
+        return resolve_client(self.client_registry, self.fallback_client)
 
-    def _allowed(self, caller: CallerContext | None, tool_name: str) -> bool:
+    def _allowed(self, client: ClientContext | None, tool_name: str) -> bool:
         scope = self.tool_scopes.get(tool_name)  # a tool without a declared scope: nobody
-        return caller is not None and scope is not None and caller.has(scope)
+        return client is not None and scope is not None and client.has(scope)
 
     async def list_tools(self) -> list[MCPTool]:
-        caller = self._caller()
-        return [t for t in await super().list_tools() if self._allowed(caller, t.name)]
+        client = self._client()
+        return [t for t in await super().list_tools() if self._allowed(client, t.name)]
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any], context: Context[Any, Any] | None = None
     ) -> CallToolResult | InputRequiredResult:
         started = time.perf_counter()
-        caller = self._caller()
+        client = self._client()
         outcome = "error"
         try:
-            if not self._allowed(caller, name):
+            if not self._allowed(client, name):
                 outcome = "denied"
                 raise ToolError(f"Unknown tool: {name}")  # same text as a truly unknown tool
-            token = _current_caller.set(caller)
+            token = _current_client.set(client)
             try:
                 result = await super().call_tool(name, arguments, context)
             finally:
-                _current_caller.reset(token)
+                _current_client.reset(token)
             outcome = "ok"
             return result
         except UnexpectedToolError:
-            # A crash inside the tool (a bug), not a caller mistake. The SDK
+            # A crash inside the tool (a bug), not a client mistake. The SDK
             # already hides the details from the model; audit it as "error".
             outcome = "error"
             raise
         except ToolError as exc:
             if outcome != "denied":
-                outcome = "denied" if _caused_by(exc, AccessDenied) else "tool_error"
+                outcome = "tool_error"
             validation = _find_cause(exc, ValidationError)
             if validation is not None:
                 raise ToolError(_friendly_validation(name, validation)) from None
@@ -111,17 +107,16 @@ class ScopedMCPServer(MCPServer[Any]):
         finally:
             audit_tool_call(
                 tool=name,
-                caller=caller.caller_id if caller else _unresolved_client(),
-                tenant=caller.tenant if caller else None,
-                via=caller.via if caller else None,
-                customer=caller.customer if caller else None,
+                client=client.client_id if client else _unresolved_client(),
+                via=client.via if client else None,
+                resources=resource_ids(arguments),
                 outcome=outcome,
                 started=started,
             )
 
 
 def _unresolved_client() -> str | None:
-    """Who presented a VALID token but got no caller (e.g. unregistered): keep it for forensics."""
+    """Who presented a VALID token but got no client (e.g. unregistered), for the audit."""
     token = get_access_token()
     return token.client_id if token is not None else None
 
@@ -133,10 +128,6 @@ def _find_cause[E: BaseException](exc: BaseException, kind: type[E]) -> E | None
             return seen
         seen = seen.__cause__ or seen.__context__
     return None
-
-
-def _caused_by(exc: BaseException, kind: type[BaseException]) -> bool:
-    return _find_cause(exc, kind) is not None
 
 
 def _friendly_validation(tool: str, err: ValidationError) -> str:

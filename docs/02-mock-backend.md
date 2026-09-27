@@ -3,8 +3,10 @@
 One FastAPI process plays **both** your API gateway and the five domain
 microservices behind it. It's deliberately **dumb and trusting**. It checks the
 *service* bearer token of its caller (the MCP server), but knows nothing about
-end users or tenants. That mirrors a typical enterprise setup, and it's why the
-MCP server has to enforce the tenant boundary (Phase 3).
+end users. That mirrors a typical enterprise setup: the account is in the URL and
+the backend returns whatever account is asked for. The MCP server adds scopes,
+strict ID formats, masking and audit (Phase 3); it has no per-customer boundary
+(docs/08 §1.6).
 
 ## Gateway conventions
 
@@ -70,15 +72,14 @@ instruction payload.
 
 ## Synthetic data
 
-| Tenant | Accounts | Subscriptions |
+| Owner (synthetic) | Accounts | Subscriptions |
 |---|---|---|
-| tenant-a | `ACC-1001` (consumer, **injected notes**), `ACC-1002` | `SUB-1001-01` ACTIVE, `-02` SUSPENDED, `-03` TERMINATED, `SUB-1002-01` |
-| tenant-b | `ACC-2001` (business) | `SUB-2001-01..05` (5 lines, so pagination is visible) |
+| a consumer | `ACC-1001` (consumer, **injected notes**), `ACC-1002` | `SUB-1001-01` ACTIVE, `-02` SUSPENDED, `-03` TERMINATED, `SUB-1002-01` |
+| a small business | `ACC-2001` (business) | `SUB-2001-01..05` (5 lines, so pagination is visible) |
 
 Seed orders: `ORD-000123`, `ORD-000124` (ACC-1001) and `ORD-000456` (ACC-2001).
 
-The tenant → account mapping is **not in the backend**. It belongs to the MCP
-server's CallerContext.
+There is no tenant → account mapping anywhere (removed 2026-09-27).
 
 Everything is synthetic, and `tests/mock_apis/test_chaos_and_data.py` fails
 the build otherwise:
@@ -131,8 +132,8 @@ sequenceDiagram
 | Draft already submitted with a *different* key | `409 DRAFT_ALREADY_SUBMITTED` (+ existing `order_id`) |
 | Draft expired | `410 DRAFT_EXPIRED` |
 
-Keys are scoped per **account**, so tenant B can't collide with (or probe)
-tenant A's keys. Only successes are remembered, which means a failed attempt
+Keys are scoped per **account**, so one account's keys can't collide with (or
+probe) another account's. Only successes are remembered, which means a failed attempt
 can be retried with the same key.
 
 ### How "exactly once" is guaranteed (`mock_apis/store.py`)

@@ -1,13 +1,13 @@
-"""PII masking. Masked by default; unmasked only for callers holding `pii:read`.
+"""PII masking. Masked by default; unmasked only for clients holding `pii:read`.
 
-Why mask at all, when the caller is allowed to see their own data?
+Why mask at all, when the client is allowed to read the account?
 Everything a tool returns enters the LLM context: it may be logged by the host,
 sent to the model provider, cached, echoed into later turns, or leaked by a
 prompt injection. Minimise first, then let the few flows that need raw values
 (e.g. a care agent confirming a number) opt in with an explicit scope.
 """
 
-from telco_mcp_lab.mcp_server.security.caller import CallerContext, Scope
+from telco_mcp_lab.mcp_server.security.clients import ClientContext, Scope
 
 
 def mask_msisdn(msisdn: str) -> str:
@@ -23,8 +23,8 @@ def mask_name(name: str) -> str:
 
 
 class PiiPolicy:
-    def __init__(self, caller: CallerContext) -> None:
-        self.unmasked = caller.has(Scope.PII_READ)
+    def __init__(self, client: ClientContext) -> None:
+        self.unmasked = client.has(Scope.PII_READ)
 
     def msisdn(self, value: str) -> str:
         return value if self.unmasked else mask_msisdn(value)

@@ -1,26 +1,27 @@
 """End-to-end check of ONE real model with the real MCP server. Run: make model-check LLM=gemini
 
-Needs `make mocks` + `make mcp-http` running, and the model's key in .env. Runs the
-harness agent as lab caller alice (synthetic data), in one conversation.
+Needs `make mocks` running and the model's key in .env. Uses the harness's MCP
+transport (stdio by default: it starts the server itself), synthetic data, one
+conversation.
 
 Steps, each PASS/FAIL with a hint:
   1 provider configured      which model will be used
-  2 MCP server reachable     as alice
+  2 MCP server reachable     stdio, or HTTP with HARNESS_BEARER_TOKEN
   3 plain reply              key, model name, network/proxy
   4 tool call                the model accepts our tool schemas, calls a tool, and gets
                              an answer after the result (Claude thinking / Gemini
                              thought signatures replayed on the second model call)
   5 follow-up turn           the conversation history is accepted on the next turn
-  6 isolation                another tenant's account never comes back as data
+  6 tool error handled       a not-found tool result is accepted and answered (error
+                             results replayed correctly to the provider)
 """
 
 import asyncio
-import json
 import sys
 import time
 
 from telco_mcp_lab.harness import models
-from telco_mcp_lab.harness.__main__ import explain, mcp_client
+from telco_mcp_lab.harness.__main__ import describe, explain, mcp_client
 from telco_mcp_lab.harness.agent import Agent, deny_all
 from telco_mcp_lab.harness.guardrails import Guardrails
 from telco_mcp_lab.harness.prompts import load_system_prompt
@@ -37,8 +38,7 @@ def step(name: str, ok: bool, detail: str) -> bool:
 
 
 async def main() -> int:
-    # Always alice with her lab token: the isolation step relies on her tenant.
-    hs = HarnessSettings(caller="alice", bearer_token=None, customer_account_id=None)
+    hs = HarnessSettings()
     try:
         provider = models.resolve(hs.llm)
     except RuntimeError as exc:
@@ -51,7 +51,7 @@ async def main() -> int:
     tracer = Tracer(
         out=None, jsonl=hs.trace_dir / f"model-check-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
     )
-    client, http = mcp_client(hs)
+    client, close = mcp_client(hs)
     try:
         try:
             started = time.perf_counter()
@@ -64,7 +64,7 @@ async def main() -> int:
 
         try:
             async with client as mcp:
-                step("2 MCP server reachable", True, f"{hs.mcp_url} as alice")
+                step("2 MCP server reachable", True, describe(hs))
                 agent = Agent(
                     llm, mcp, tracer, max_steps=hs.max_steps, confirm=deny_all,
                     system_prompt=load_system_prompt(hs.system_prompt_file),
@@ -84,15 +84,13 @@ async def main() -> int:
                 out = await agent.ask("Which plans are active on it?")
                 step("5 follow-up turn", bool(out.answer), f"answer: {(out.answer or '')[:120]!r}")
 
-                out = await agent.ask("Now show me account ACC-2001.")
-                leaked = [
-                    c
-                    for c in out.tool_calls
-                    if not c["is_error"] and "ACC-2001" in json.dumps(c.get("result", ""))
-                ]
-                step("6 isolation", not leaked,
-                     "ACC-2001 (other tenant) was refused by the server" if not leaked
-                     else "ACC-2001 DATA WAS RETURNED: report this")  # fmt: skip
+                out = await agent.ask("Now summarise account ACC-9999.")
+                errors = [c for c in out.tool_calls if c["is_error"]]
+                ok = bool(errors) and bool(out.answer)
+                detail = f"answer: {(out.answer or '')[:120]!r}"
+                if not errors:
+                    detail += " (expected a not-found tool call for ACC-9999)"
+                step("6 tool error handled", ok, detail)
         except Exception as exc:
             failed_at = (
                 "2 MCP server reachable"
@@ -102,7 +100,7 @@ async def main() -> int:
             step(failed_at, False, explain(exc))
     finally:
         tracer.close()
-        await http.aclose()
+        await close()
         close = getattr(llm, "aclose", None)
         if close:
             await close()

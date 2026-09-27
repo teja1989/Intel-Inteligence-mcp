@@ -16,12 +16,15 @@
 
 ```
 make mocks            # terminal 1
-make mcp-http         # terminal 2
-make harness-check    # terminal 3: MCP ✅ + Azure settings ✅ + one tiny completion ✅
-make ask Q="what plans am I on?"             # one question, full trace
-make ask Q="list my lines" CALLER=bob        # another identity
+make harness-check    # terminal 2: MCP ✅ (stdio: the harness starts the server) + model ✅
+make ask Q="what plans are on ACC-1001?"     # one question, full trace
+make ask Q="lines on ACC-2001" TRANSPORT=http  # via a running `make mcp-http` (JWT)
 make chat                                    # multi-turn
 ```
+
+**MCP transport:** `HARNESS_TRANSPORT=stdio` (default) starts the MCP server as a
+child process: no token, permissions from `MCP_STDIO_SCOPES`. `http` calls a running
+`make mcp-http` with `HARNESS_BEARER_TOKEN` (paste from `make token`; tokens last 2 h).
 
 ## 1. Where "routing" actually happens
 
@@ -30,8 +33,8 @@ sequenceDiagram
     participant U as You
     participant H as Harness (host)
     participant A as Azure OpenAI (v1)
-    participant M as MCP server (HTTP)
-    H->>M: tools/list (Bearer = alice)
+    participant M as MCP server (stdio or HTTP)
+    H->>M: tools/list (HTTP: Bearer JWT)
     M-->>H: 5 tools (names, descriptions, JSON schemas)
     U->>H: "cancel nothing, just check order 123"
     H->>A: chat.completions(messages, tools=[5 functions])
@@ -116,8 +119,8 @@ Everything the model sees is sent to Azure OpenAI:
 That's the concrete reason Phase 3 masks PII, withholds instruction-like notes
 and returns allow-listed fields: the MCP server's shaping decides what reaches
 the provider. Tests assert the injected note never appears in anything sent to
-the model (`test_injected_note_does_not_reach_the_model`). A caller without
-scopes (mallory) sends **zero** tool definitions: the model never learns the
+the model (`test_injected_note_does_not_reach_the_model`). A client without
+the `read` scope sends **zero** tool definitions: the model never learns the
 tools exist.
 
 ## 5. Azure OpenAI configuration (v1 endpoint)
@@ -166,7 +169,7 @@ hints, walking the exception's cause chain (SDKs wrap the real reason in
 "Connection error."). Captured in the sandbox, whose egress proxy blocks Azure:
 
 ```
-[1/3] MCP server http://127.0.0.1:8090/mcp as 'alice' …
+[1/3] MCP server: a local stdio server (scopes from MCP_STDIO_SCOPES) …
       ✅ protocol 2026-07-28, tools: ['get_account_summary', …]
 [2/3] Azure OpenAI settings …
       ✅ endpoint https://lab-resource.openai.azure.invalid/openai/v1/, deployment 'gpt-5-lab'
@@ -185,20 +188,20 @@ most-specific-first, and there's a test for it.)
 |---|---|
 | `test_agent.py` | scripted LLM + **real** MCP server: tool format, single/multi-step, self-correction from a tool error, parallel calls answered in order, history, guards, injection never reaches the model, confirmation (declined/approved/default-deny/read-only no prompt), JSONL trace |
 | `test_azure_adapter.py` | the real `openai` SDK against a **mocked Azure v1 endpoint** (`httpx2.MockTransport`): URL (no api-version), Bearer vs `api-key` header (key sent once), `model` = deployment, no sampling knobs by default, tool_calls parsing, settings validation, **full loop: mocked Azure decides → real MCP executes** |
-| `test_harness_http.py` | harness over real HTTP in both eras as bob (own data only); mallory offers the model zero tools; diagnostic hints incl. cause chain and proxy-403 |
+| `test_harness_http.py` | harness over real HTTP (JWT) in both eras; a client without `read` offers the model zero tools; stdio default needs no token, http without a token stops with a hint; diagnostic hints incl. cause chain and proxy-403 |
 | `test_resilience.py` (+1) | local gateway calls ignore a dead `HTTP(S)_PROXY` |
 
 ## 7. What to try on your machine
 
 1. `make harness-check` until all three steps are ✅.
-2. `make ask Q="what plans am I on?"`. Alice has two accounts, so watch the
-   model receive "several accounts … ask which one" and come back to you.
-3. `make ask Q="is roaming on for my main number?"`. Expect a two-step chain,
-   `list_subscriptions` → `get_service_details`.
-4. `make ask Q="show me account ACC-2001" `: tenant guard, indistinguishable "not available".
-5. `make ask Q="what's on my account?" CALLER=bob`, then with `CALLER=mallory`.
-6. `make ask Q="read me my account notes"`: the injected note is withheld; the
+2. `make ask Q="what plans am I on?"` (no ID): the account ID is required, so the
+   model should ask you for it rather than invent one.
+3. `make ask Q="is roaming on for the main number on ACC-1001?"`. Expect a two-step
+   chain, `list_subscriptions` → `get_service_details`.
+4. `make ask Q="show me account ACC-9999"`: a clean "not found" the model reports.
+5. `make ask Q="read me the notes on ACC-1001"`: the injected note is withheld; the
    model can only say a note exists.
+6. Set `MCP_STDIO_SCOPES="read pii:read"` and ask for a phone number: now unmasked.
 7. Compare GPT-5 vs GPT-4.x deployments on the same questions. Phase 6 turns
    this into numbers.
 
@@ -226,17 +229,17 @@ Tests cover all of it.
 
 ```bash
 make mocks                     # terminal 1
-make mcp-http                  # terminal 2
-make model-check LLM=gemini    # terminal 3
+make model-check LLM=gemini    # terminal 2 (stdio by default; HARNESS_TRANSPORT=http for mcp-http)
 ```
 
-It runs as lab caller alice and prints PASS/FAIL, with a fix hint, for six steps:
+It prints PASS/FAIL, with a fix hint, for six steps:
 1. provider configured;
 2. MCP server reachable;
 3. a plain reply;
 4. a **real tool call** (schemas accepted; thinking or signatures replayed);
 5. a follow-up turn;
-6. tenant isolation.
+6. a **tool error** (ACC-9999, not found) accepted and answered: error results are
+   replayed to the provider in its own format.
 
 It was rehearsed against a strict fake Gemini API over HTTPS: all six pass, and
 without the signature replay step 4 fails with Gemini's own error. A run with a real

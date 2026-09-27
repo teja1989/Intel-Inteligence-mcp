@@ -1,6 +1,6 @@
 # 08 · Access, environments and guardrails
 
-> **Status: v0.2, 2026-09-26.** G2 and the developer connector are built (see below). Decisions from the lead: internal consumers only for now;
+> **Status: v0.3, 2026-09-27** (identity simplified: client + scopes, no customer boundary, §1.6). G2 and the developer connector are built (see below). Decisions from the lead: internal consumers only for now;
 > **one shared client ID + secret for all lower environments**; **developer sign-in
 > (SSO) for VS Code / Claude Code in lower environments** so people never handle tokens.
 > Items marked **OPEN** need answers (§10). Items marked **BUILD** are designed but not
@@ -21,6 +21,16 @@
 4. **The server enforces; people and tools only follow guidelines.** Every MUST below says
    how it is enforced: in code, in configuration, or (weakest) by process.
 5. **Least privilege by default.** `read` only unless a reviewed need says otherwise.
+6. **No customer boundary (accepted risk, decision 2026-09-27).** The account ID is a
+   tool argument that goes into the domain API URL, like the APIs themselves work. Any
+   registered client with `read` can read **any** account by ID. Why accepted: internal
+   consumers only, and the gateway already authenticates every client. What
+   compensates (docs/04 §3): registered clients and least-privilege scopes, PII masked
+   unless `pii:read`, strict ID formats checked before any backend call, no bulk tools,
+   and an audit line naming the client and every account / line / order ID touched.
+   **Revisit before** any external consumer, any customer-facing agent, or any client
+   that should see only some customers: then the boundary must come from a verified
+   customer assertion, never from the model (docs/06 §4).
 
 ## 2. Environments and who uses what
 
@@ -53,7 +63,7 @@ whose tool can't do SSO. **Built:** the connector, set up per docs/09.
 **C. Production agent apps (client credentials).** The standard OAuth 2.0 flow in
 application code (§7).
 
-**D. Local stdio.** No auth. The process acts as `MCP_STDIO_CALLER` (MCP spec: stdio
+**D. Local stdio.** No auth. The process runs with the scopes in `MCP_STDIO_SCOPES` (MCP spec: stdio
 servers take credentials from the environment, not OAuth). Mock data only.
 
 ## 4. Guardrails (MUST)
@@ -61,15 +71,15 @@ servers take credentials from the environment, not OAuth). Mock data only.
 | # | Guardrail | Enforced by | Status |
 |---|---|---|---|
 | G1 | Tokens are accepted only from the configured issuer(s), with the exact audience of *this* environment, an asymmetric signature and ≤ 2 h lifetime | Server code (`jwt_verifier.py`) | ✅ enforced, tested |
-| G2 | **Production refuses to start** with any lab or lower-env setting: stdio, static lab tokens, `--legacy-sessions`, raw free text, JWKS *file*, non-https or local/reserved-domain (`.invalid`, `.test`, `localhost`, …) public URL / issuer / audience / JWKS URL, and any registry entry not tagged `"environments": [..., "production"]`. Will also cover SSO user profiles when built | `MCP_ENVIRONMENT=production` startup check (`security/environment.py`), exit code 2 | ✅ enforced, tested (incl. mutation checks) |
+| G2 | **Production refuses to start** with any lab or lower-env setting: stdio, `--legacy-sessions`, raw free text, JWKS *file*, non-https or local/reserved-domain (`.invalid`, `.test`, `localhost`, …) public URL / issuer / audience / JWKS URL, and any registry entry not tagged `"environments": [..., "production"]`. Will also cover SSO user profiles when built | `MCP_ENVIRONMENT=production` startup check (`security/environment.py`), exit code 2 | ✅ enforced, tested (incl. mutation checks) |
 | G3 | Only registered clients get anything; effective scopes = token ∩ registry | Server code (`clients.py`) | ✅ enforced, tested |
 | G4 | SSO users must be in an approved group / app role (e.g. `MCP-LowerEnv-Testers`), assigned in the identity provider **and** re-checked by the server | IdP app assignment + server | **BUILD** |
-| G5 | SSO users get lower-env policy only: `read`, synthetic tenant or customer header, never write scopes | Server policy for user principals | **BUILD** |
+| G5 | SSO users get lower-env policy only: `read` (synthetic data), never write scopes | Server policy for user principals | **BUILD** |
 | G6 | Lower-env data is synthetic | Data management process + gateway points at mocks/test APIs | Process (**OPEN**: confirm) |
 | G7 | The shared lower-env secret never appears in git, `.mcp.json` / `mcp.json`, `.env` files that are shared, tickets, chat, wikis or LLM prompts | Secret scanning (pre-commit + CI) + process | Process; scanning **BUILD** |
 | G8 | Rate limits per client ID at the gateway (the shared client too) | Gateway config | **OPEN** (gateway supports it) |
-| G9 | Every call audited with principal (client ID, or user ID for SSO), customer, tool, outcome; no payloads, no tokens | Server code | ✅ client + customer; user ID **BUILD** |
-| G10 | Customer header only from application/tool configuration, never chosen by the model | Server policy + guidelines | ✅ for registered clients |
+| G9 | Every call audited with principal (client ID, or user ID for SSO), the account / line / order IDs touched, tool, outcome; no payloads, no tokens | Server code | ✅ client + IDs; user ID **BUILD** |
+| G10 | Account IDs only in strict formats, checked before any backend call; the model is told never to invent one | Tool schemas + descriptions | ✅ enforced, tested (security matrix) |
 | G11 | Revocation works without a redeploy (kill switch) | Registry hot reload / suspend list | **BUILD** (docs/TODO.md) |
 
 ## 5. The shared lower-env client ID: rules
@@ -118,8 +128,7 @@ sequenceDiagram
 - **Several trust profiles:** a *client* profile (token service) and a *user* profile
   (IdP), each with its own issuer, JWKS, audience and claim mapping (user ID, scopes/roles,
   group).
-- **A user policy in the registry:** required group or role, allowed scopes, and customer
-  mode.
+- **A user policy in the registry:** required group or role, and allowed scopes.
 - **Protected-resource metadata** that points at the IdP.
 - **The G2 startup guard** for production.
 - **Audit fields** for principal type and user.
@@ -153,8 +162,8 @@ sequenceDiagram
   - cache in memory and refresh about 5 minutes before expiry, one refresh at a time;
   - on a 401, fetch a new token and retry **once**, then fail;
   - never log tokens.
-- Send `Authorization` on every request. Set the customer header from the app's own
-  session.
+- Send `Authorization` on every request. Pass the account ID the user is dealing with
+  as the tool argument (the model takes it from the conversation).
 - **Coding tools (Claude Code, VS Code agents, CI bots) do not connect to production.** If
   an automated tool truly needs production, it's onboarded as an app (own client ID,
   review), never with a person's or the lower-env credential.
@@ -171,7 +180,7 @@ sequenceDiagram
 - Paste tokens or secrets into chats, prompts, tickets or config files in repos.
 - Commit `.mcp.json` / `mcp.json` with headers containing credentials.
 - Point lower-env tools at production URLs.
-- Let the model choose the customer.
+- Let a prompt ask the model to "look around" other accounts: IDs come from the user.
 
 **Remember:** tool outputs go to your coding assistant's LLM provider. That's one more
 reason lower environments must stay synthetic.
@@ -195,5 +204,6 @@ reason lower environments must stay synthetic.
    internal network only.
 3. **Lower-env data:** confirm synthetic only (G6).
 4. **Who may sign in:** an approved group (recommended) or all engineers?
-5. **SSO users' customer access:** a fixed synthetic test tenant, or allowed to set the
-   customer header (fine on synthetic data, closer to production behaviour)?
+5. **Customer boundary for production:** is "any registered client can read any
+   account" (§1.6) acceptable for every production client, or do some need a
+   verified-customer restriction?

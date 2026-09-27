@@ -69,18 +69,14 @@ env: ## Create .env from .env.example with fresh random tokens (won't overwrite 
 	  tok=$$(gen); \
 	  sed -e "s|^MOCK_GATEWAY_TOKEN=.*|MOCK_GATEWAY_TOKEN=$$tok|" \
 	      -e "s|^GATEWAY_TOKEN=.*|GATEWAY_TOKEN=$$tok|" \
-	      -e "s|^MCP_TOKEN_ALICE=.*|MCP_TOKEN_ALICE=$$(gen)|" \
-	      -e "s|^MCP_TOKEN_BOB=.*|MCP_TOKEN_BOB=$$(gen)|" \
-	      -e "s|^MCP_TOKEN_CAROL=.*|MCP_TOKEN_CAROL=$$(gen)|" \
-	      -e "s|^MCP_TOKEN_MALLORY=.*|MCP_TOKEN_MALLORY=$$(gen)|" \
 	      -e "s|^DEV_TOKEN_SERVICE_CLIENT_SECRET=.*|DEV_TOKEN_SERVICE_CLIENT_SECRET=$$(gen)|" .env.example > .env; \
-	  chmod 600 .env; echo "Created .env (mode 600) with random gateway + caller tokens."; fi
+	  chmod 600 .env; echo "Created .env (mode 600) with a random gateway token + dev secret."; fi
 
 env-update: ## Add settings that are new in .env.example to your existing .env (never overwrites)
 	@$(RUN) python scripts/env_update.py $${CHECK:+--check}
 
-env-tokens: ## Add missing lab tokens/secrets (MCP_TOKEN_*, dev token service) to an EXISTING .env
-	@for v in MCP_TOKEN_ALICE MCP_TOKEN_BOB MCP_TOKEN_CAROL MCP_TOKEN_MALLORY DEV_TOKEN_SERVICE_CLIENT_SECRET; do \
+env-tokens: ## Add a missing dev token service secret to an EXISTING .env
+	@for v in DEV_TOKEN_SERVICE_CLIENT_SECRET; do \
 	  if ! grep -q "^$$v=." .env; then \
 	    sed -i.bak "/^$$v=/d" .env; \
 	    echo "$$v=$$($(RUN) python -c 'import secrets; print(secrets.token_urlsafe(32))')" >> .env; \
@@ -108,57 +104,52 @@ inspector: ## MCP Inspector web UI on 127.0.0.1:6274, launching our server throu
 inspector-cli-list: ## Inspector CLI: tools/list over stdio (ERA=legacy|auto|modern, default legacy)
 	$(INSPECTOR) --cli $(TRACED_CMD) -- --method tools/list --protocol-era $${ERA:-legacy}
 
-inspector-cli-call: ## Inspector CLI: call get_account_summary as the stdio caller (ACCOUNT=ACC-1002 / ACC-2001=refused)
+inspector-cli-call: ## Inspector CLI: call get_account_summary over stdio (ACCOUNT=ACC-2001, or ACC-9999 = not found)
 	$(INSPECTOR) --cli $(TRACED_CMD) -- --method tools/call --tool-name get_account_summary \
 	  --tool-arg account_id=$(ACCOUNT) --protocol-era $${ERA:-legacy}
 
 traces: ## List captured JSON-RPC wire traces (.data/traces, gitignored, contains payloads)
 	@ls -1t .data/traces/*.jsonl 2>/dev/null | head -20 || echo "No traces yet."
 
-##@ MCP server over stateless Streamable HTTP (Phase 3; mock gateway must be running)
-.PHONY: mcp-http mcp-cluster demo-http demo-injection inspector-http
-mcp-http: ## Run the MCP server on http://127.0.0.1:8090/mcp (stateless, bearer auth)
-	$(RUN) python -m telco_mcp_lab.mcp_server --transport http
+##@ MCP server over stateless Streamable HTTP (JWT auth; mock gateway must be running)
+.PHONY: dev-keys token mcp-http mcp-cluster demo-http demo-injection inspector-http test-jwt
+# HTTP always needs JWT settings. If .env has no MCP_JWT_ISSUER, trust the local DEV keys.
+DEV_JWT_ENV := MCP_JWT_ISSUER=https://token-service.dev.invalid \
+  MCP_JWT_AUDIENCE=http://127.0.0.1:8090/mcp MCP_JWT_JWKS_FILE=.data/dev-keys/jwks.json \
+  MCP_JWT_JWKS_URL=
+JWT_ENV := $(LOAD_ENV); if [ -z "$${MCP_JWT_ISSUER}" ]; then \
+  [ -f .data/dev-keys/jwks.json ] || { echo "no MCP_JWT_* in .env and no dev keys: run make dev-keys"; exit 1; }; \
+  echo "JWT: trusting the local DEV keys (.data/dev-keys)"; export $(DEV_JWT_ENV); fi
+CLIENT ?= lowerenv-shared
+SCOPES ?= read
+
+dev-keys: ## DEV ONLY: RSA key + JWKS in .data/dev-keys, standing in for the token service
+	$(RUN) python -m telco_mcp_lab.devtools.token_issuer keys
+
+token: ## DEV ONLY: print a 2 h token: make token [CLIENT=care-agent-internal SCOPES="read pii:read"]
+	@$(RUN) python -m telco_mcp_lab.devtools.token_issuer mint --client "$(CLIENT)" --scopes "$(SCOPES)"
+
+mcp-http: ## MCP server on http://127.0.0.1:8090/mcp (stateless, JWT; dev keys unless MCP_JWT_* set)
+	@$(JWT_ENV); $(RUN) python -m telco_mcp_lab.mcp_server --transport http
 
 mcp-cluster: ## 2 replicas (:8091, :8092) behind a round-robin LB on :8099 (Ctrl-C stops all)
-	@trap 'kill 0' INT TERM EXIT; \
+	@$(JWT_ENV); trap 'kill 0' INT TERM EXIT; \
 	$(RUN) python -m telco_mcp_lab.mcp_server --transport http --port 8091 $${LEGACY:+--legacy-sessions} & \
 	$(RUN) python -m telco_mcp_lab.mcp_server --transport http --port 8092 $${LEGACY:+--legacy-sessions} & \
 	$(RUN) python -m telco_mcp_lab.devtools.round_robin_lb --port 8099 \
 	  --backend http://127.0.0.1:8091 --backend http://127.0.0.1:8092 & \
 	echo "cluster: http://127.0.0.1:8099/mcp  (LEGACY=1 to see sticky-session failure)"; wait
 
-demo-http: ## Walk through callers, scopes, tenant guard, masking over HTTP (URL=… for the cluster)
+demo-http: ## Walk through tokens, clients, scopes, masking, IDs over HTTP (URL=… for the cluster)
 	$(RUN) python scripts/http_demo.py $${URL:+--url $$URL}
 
 demo-injection: ## Before/after: the prompt-injection note as the model would see it
 	$(RUN) python scripts/injection_demo.py
 
-inspector-http: ## Inspector web UI; connect to http://127.0.0.1:8090/mcp with header Authorization: Bearer $$MCP_TOKEN_ALICE
+inspector-http: ## Inspector web UI; connect to http://127.0.0.1:8090/mcp with header Authorization: Bearer <make token>
 	$(INSPECTOR)
 
-##@ Internal run: JWT auth from the token service (E2; docs/07)
-.PHONY: dev-keys token mcp-http-jwt demo-jwt test-jwt
-DEV_JWT_ENV := MCP_AUTH_MODE=jwt MCP_JWT_ISSUER=https://token-service.dev.invalid \
-  MCP_JWT_AUDIENCE=http://127.0.0.1:8090/mcp MCP_JWT_JWKS_FILE=.data/dev-keys/jwks.json \
-  MCP_JWT_JWKS_URL=
-CLIENT ?= ops-dashboard
-SCOPES ?= read
-
-dev-keys: ## DEV ONLY: RSA key + JWKS in .data/dev-keys, standing in for the token service
-	$(RUN) python -m telco_mcp_lab.devtools.token_issuer keys
-
-token: ## DEV ONLY: print a 2 h token: make token CLIENT=care-agent-internal SCOPES="read pii:read"
-	@$(RUN) python -m telco_mcp_lab.devtools.token_issuer mint --client "$(CLIENT)" --scopes "$(SCOPES)"
-
-mcp-http-jwt: ## MCP server in JWT mode trusting the DEV keys (real config: set MCP_JWT_* in .env, run mcp-http)
-	@[ -f .data/dev-keys/jwks.json ] || { echo "run: make dev-keys"; exit 1; }
-	$(DEV_JWT_ENV) $(RUN) python -m telco_mcp_lab.mcp_server --transport http
-
-demo-jwt: ## Walk through JWT mode: bad tokens (401), bound vs customer-context clients, registry
-	$(RUN) python scripts/jwt_demo.py $${URL:+--url $$URL}
-
-test-jwt: ## Run only the JWT / client-registry / customer-context tests
+test-jwt: ## Run only the JWT / client-registry tests
 	$(RUN) pytest tests/mcp_server/test_jwt_auth.py -v
 
 ##@ Developer tools with the shared lower-env client (docs/09; local stand-ins)
@@ -172,12 +163,12 @@ dev-token-service: ## DEV ONLY: local token service on :8095 (client credentials
 connect-local: ## Write .data/connect/local.env: connector config for the LOCAL stack (no real secrets)
 	@mkdir -p .data/connect
 	@printf '%s\n' \
-	  "# Connector config for the LOCAL stack (make mocks, mcp-http-jwt, dev-token-service)." \
+	  "# Connector config for the LOCAL stack (make mocks, mcp-http, dev-token-service)." \
 	  "TELCO_MCP_URL=http://127.0.0.1:8090/mcp" \
 	  "TELCO_MCP_TOKEN_URL=http://127.0.0.1:8095/oauth/token" \
 	  "TELCO_MCP_CLIENT_ID=lowerenv-shared" \
 	  "TELCO_MCP_SECRET_COMMAND=$(CURDIR)/.venv/bin/python $(CURDIR)/scripts/local_dev_secret.py" \
-	  "TELCO_MCP_CUSTOMER=ACC-1001" > .data/connect/local.env
+	  > .data/connect/local.env
 	@chmod 600 .data/connect/local.env; echo "wrote .data/connect/local.env (use with --config)"
 
 connect-check: ## Token + tools/list through the connector, no secrets printed (CONFIG=… default local)
@@ -186,27 +177,27 @@ connect-check: ## Token + tools/list through the connector, no secrets printed (
 test-connect: ## Run only the connector + dev token service tests
 	$(RUN) pytest tests/connect -v
 
-##@ Model check: one real model end to end (needs mocks + mcp-http, and a key in .env)
+##@ Model check: one real model end to end (needs mocks, and a key in .env)
 .PHONY: model-check
 LLM ?=
 ifneq ($(strip $(LLM)),)
 export HARNESS_LLM := $(LLM)
 endif
 
-model-check: ## Real model E2E: reply, tool call, follow-up, isolation (LLM=gemini|claude|azure)
+model-check: ## Real model E2E: reply, tool call, follow-up, tool error (LLM=gemini|claude|azure)
 	$(RUN) python scripts/model_check.py
 
-##@ LLM harness CLI: Claude / Gemini / Azure OpenAI as the MCP host (needs mocks + mcp-http)
+##@ LLM harness CLI: Claude / Gemini / Azure OpenAI as the MCP host (needs mocks; stdio by default)
 .PHONY: harness-check ask chat
-harness-check: ## Verify MCP + Azure connectivity (prints actionable hints on failure)
+harness-check: ## Verify MCP + model connectivity (prints actionable hints on failure)
 	$(RUN) python -m telco_mcp_lab.harness --check
 
-ask: ## One question with a full step trace: make ask Q="what plans am I on?" [CALLER=bob] [LLM=gemini]
-	@test -n "$(Q)" || { echo 'usage: make ask Q="your question" [CALLER=alice|bob|carol|mallory]'; exit 2; }
-	$(RUN) python -m telco_mcp_lab.harness $${CALLER:+--caller $$CALLER} "$(Q)"
+ask: ## One question with a full step trace: make ask Q="plans on ACC-1001?" [LLM=gemini] [TRANSPORT=http]
+	@test -n "$(Q)" || { echo 'usage: make ask Q="your question" [LLM=claude|gemini|azure] [TRANSPORT=stdio|http]'; exit 2; }
+	$(RUN) python -m telco_mcp_lab.harness $${TRANSPORT:+--transport $$TRANSPORT} "$(Q)"
 
-chat: ## Interactive multi-turn chat with the trace (CALLER=bob to switch identity)
-	$(RUN) python -m telco_mcp_lab.harness $${CALLER:+--caller $$CALLER}
+chat: ## Interactive multi-turn chat with the trace (TRANSPORT=http to use make mcp-http)
+	$(RUN) python -m telco_mcp_lab.harness $${TRANSPORT:+--transport $$TRANSPORT}
 
 ##@ Chaos switch (mock backend must be running)
 .PHONY: chaos-slow chaos-fail chaos-off chaos-status
@@ -242,7 +233,7 @@ test-harness: ## Run only the harness tests (scripted LLM + mocked Azure; no net
 test-protocol: ## Run only end-to-end protocol tests (stdio subprocesses, real HTTP, LB cluster)
 	$(RUN) pytest -m protocol -v
 
-test-security: ## Run only security-marked tests (auth, tenant matrix, scopes, masking, injection, audit)
+test-security: ## Run only security-marked tests (auth, scope/ID matrix, masking, injection, audit)
 	$(RUN) pytest -m security -v
 
 smoke: ## Real-HTTP walkthrough against the RUNNING mock gateway (start `make mocks` first)

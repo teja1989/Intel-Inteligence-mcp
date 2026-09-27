@@ -17,7 +17,7 @@ from telco_mcp_lab.harness.agent import Agent
 from telco_mcp_lab.harness.llm import AzureChatModel
 from telco_mcp_lab.harness.settings import AzureOpenAISettings
 from telco_mcp_lab.harness.trace import Tracer
-from tests.conftest import server_as
+from tests.conftest import server_with
 
 ENDPOINT = "https://lab-resource.openai.azure.com/openai/v1/"
 KEY = "azure-test-key-0123456789"
@@ -154,7 +154,7 @@ class TestEndToEndWithMockedAzure:
             completion({"role": "assistant", "content": "Your order is COMPLETED."}),
         )
         llm = fake.client(settings())
-        async with Client(server_as("alice", mock_telco_factory)) as mcp:
+        async with Client(server_with(mock_telco_factory)) as mcp:
             result = await Agent(llm, mcp, Tracer(out=io.StringIO())).ask("status of order 123?")
         assert result.answer == "Your order is COMPLETED."
         # Second request carried the tool result back to "Azure" as a role=tool message.

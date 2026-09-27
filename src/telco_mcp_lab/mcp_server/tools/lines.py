@@ -1,4 +1,4 @@
-"""Mobile-line tools: list the user's subscriptions, and details of one line."""
+"""Mobile-line tools: list an account's subscriptions, and details of one line."""
 
 from typing import Literal
 
@@ -6,9 +6,8 @@ from mcp.server.mcpserver import Context
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
-from telco_mcp_lab.mcp_server.security.caller import Scope
-from telco_mcp_lab.mcp_server.security.guard import ensure_owned, resolve_account
-from telco_mcp_lab.mcp_server.security.scoped_server import ScopedMCPServer, current_caller
+from telco_mcp_lab.mcp_server.security.clients import Scope
+from telco_mcp_lab.mcp_server.security.scoped_server import ScopedMCPServer, current_client
 from telco_mcp_lab.mcp_server.shaping.free_text import ShapedText, shape_free_text
 from telco_mcp_lab.mcp_server.shaping.pii import PiiPolicy
 from telco_mcp_lab.mcp_server.state import app_state
@@ -25,7 +24,7 @@ Status = Literal["ACTIVE", "SUSPENDED", "TERMINATED"]
 
 class Line(BaseModel):
     subscription_id: str
-    msisdn: str = Field(description="Phone number, masked unless the caller may see PII.")
+    msisdn: str = Field(description="Phone number, masked unless the client may see PII.")
     plan_name: str
     status: Status
     started_at: str
@@ -56,8 +55,8 @@ class LineDetails(BaseModel):
 
 
 LIST_DESCRIPTION = """\
-List the mobile lines (subscriptions) on the user's account: subscription ID,
-phone number, plan and status for each. Paginated.
+List the mobile lines (subscriptions) on an account: subscription ID, phone
+number, plan and status for each. Paginated. Needs the account_id (e.g. ACC-1001).
 
 Use this for "what numbers/lines do I have?", "which plan is each line on?",
 "show my suspended lines" (status=SUSPENDED), or to find the subscription_id
@@ -94,16 +93,14 @@ def register(mcp: ScopedMCPServer) -> None:
     )
     async def list_subscriptions(
         ctx: Context,
-        account_id: AccountIdArg = None,
+        account_id: AccountIdArg,
         status: Status | None = None,
         limit: LimitArg = 10,
         cursor: CursorArg = None,
     ) -> LinePage:
-        caller = current_caller()
-        account_id = resolve_account(caller, account_id)
         async with gateway_errors():
             page = await app_state(ctx).telco.list_subscriptions(account_id, status, limit, cursor)
-        pii = PiiPolicy(caller)
+        pii = PiiPolicy(current_client())
         return LinePage(
             account_id=account_id,
             items=[
@@ -114,10 +111,10 @@ def register(mcp: ScopedMCPServer) -> None:
                     status=s["status"],
                     started_at=s["started_at"][:10],
                 )
-                # Belt and braces: even if the backend misbehaved, never return
-                # another tenant's row.
+                # Belt and braces: even if the backend ignored the filter, only
+                # return rows of the account that was asked for.
                 for s in page["items"]
-                if s.get("account_id") in caller.account_ids
+                if s.get("account_id") == account_id
             ],
             next_cursor=page.get("next_cursor"),
         )
@@ -129,17 +126,14 @@ def register(mcp: ScopedMCPServer) -> None:
         annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
     )
     async def get_service_details(ctx: Context, subscription_id: SubscriptionIdArg) -> LineDetails:
-        caller = current_caller()
         state = app_state(ctx)
         async with gateway_errors():
             sub = await state.telco.get_subscription(subscription_id)
-            ensure_owned(caller, sub, "subscription", "SUB-1001-01")  # check BEFORE the 2nd call
             svc = await state.telco.get_service(sub["service_id"])
-            ensure_owned(caller, svc, "subscription", "SUB-1001-01")
         return LineDetails(
             subscription_id=sub["subscription_id"],
             service_id=svc["service_id"],
-            msisdn=PiiPolicy(caller).msisdn(svc["msisdn"]),
+            msisdn=PiiPolicy(current_client()).msisdn(svc["msisdn"]),
             status=svc["status"],
             network=svc["network"],
             data_allowance_gb=svc["data_allowance_gb"],

@@ -1,6 +1,6 @@
 """Entry point.
 
-    uv run python -m telco_mcp_lab.mcp_server                      # stdio (as MCP_STDIO_CALLER)
+    uv run python -m telco_mcp_lab.mcp_server                      # stdio (MCP_STDIO_SCOPES)
     uv run python -m telco_mcp_lab.mcp_server --transport http     # stateless Streamable HTTP
     uv run python -m telco_mcp_lab.mcp_server --transport http --port 8091 --legacy-sessions
 
@@ -13,14 +13,12 @@ it turns off `stateless_http`, so pre-2026 clients get an in-memory
 
 import argparse
 import logging
-import os
 import sys
 
 import uvicorn
-from dotenv import dotenv_values
 
 from telco_mcp_lab.mcp_server.http_app import build_http_app
-from telco_mcp_lab.mcp_server.security.caller import AccessModel
+from telco_mcp_lab.mcp_server.security.clients import ClientContext
 from telco_mcp_lab.mcp_server.security.environment import (
     ProductionFacts,
     UnsafeProductionConfig,
@@ -57,7 +55,6 @@ def _main() -> None:
     # (and in real systems often MSISDNs). Keep them out of the logs.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     settings = McpServerSettings()
-    model = AccessModel.load(settings.access_config)
     if settings.unsafe_raw_free_text:
         log.warning("MCP_UNSAFE_RAW_FREE_TEXT is ON: free text reaches the model verbatim (demo)")
 
@@ -67,25 +64,21 @@ def _main() -> None:
             settings.environment,
             ProductionFacts(
                 transport="stdio",
-                auth_mode=settings.auth_mode,
                 public_url=settings.public_url,
                 unsafe_raw_free_text=settings.unsafe_raw_free_text,
             ),
         )
-        caller = model.context_for(settings.stdio_caller, via="stdio")
-        log.info("stdio: acting as caller %r (tenant %s)", caller.caller_id, caller.tenant)
+        client = ClientContext("stdio", frozenset(settings.stdio_scopes.split()), "stdio")
+        log.info("stdio: local client, scopes %s", sorted(client.scopes))
         server = build_server(
-            access_model=model,
-            fallback_caller=caller,
+            fallback_client=client,
             unsafe_raw_free_text=settings.unsafe_raw_free_text,
         )
         server.run(transport="stdio")
         return
 
     port = args.port or settings.port
-    # Real environment variables win over .env, as with pydantic-settings.
-    env = {**{k: v for k, v in dotenv_values(".env").items() if v is not None}, **os.environ}
-    app = build_http_app(settings, model, env, legacy_sessions=args.legacy_sessions)
+    app = build_http_app(settings, legacy_sessions=args.legacy_sessions)
     if args.legacy_sessions:
         log.warning("--legacy-sessions: legacy clients get in-memory sessions (NOT scalable)")
     log.info("http: listening on http://%s:%s/mcp (stateless)", settings.host, port)

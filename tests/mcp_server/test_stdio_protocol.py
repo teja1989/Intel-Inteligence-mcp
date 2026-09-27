@@ -9,7 +9,6 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 import pytest
 from mcp import Client
@@ -22,7 +21,6 @@ pytestmark = pytest.mark.protocol
 SERVER = ["-m", "telco_mcp_lab.mcp_server", "--log-level", "WARNING"]
 
 
-ACCESS_CONFIG = str(Path(__file__).parents[2] / "config" / "access.json")
 READ_TOOLS = [
     "get_account_summary",
     "list_subscriptions",
@@ -32,14 +30,13 @@ READ_TOOLS = [
 ]
 
 
-def server_env(gateway_url: str, caller: str = "alice") -> dict[str, str]:
+def server_env(gateway_url: str, scopes: str = "read") -> dict[str, str]:
     # Real env vars beat .env in pydantic-settings, so a developer's .env
-    # can't point the test server at the wrong gateway or identity.
+    # can't point the test server at the wrong gateway or scopes.
     return {
         "GATEWAY_BASE_URL": gateway_url,
         "GATEWAY_TOKEN": TEST_TOKEN,
-        "MCP_STDIO_CALLER": caller,
-        "MCP_ACCESS_CONFIG": ACCESS_CONFIG,
+        "MCP_STDIO_SCOPES": scopes,
     }
 
 
@@ -139,13 +136,21 @@ def test_sdk_diverts_stray_prints_away_from_the_protocol_stream():
 
 
 @pytest.mark.security
-async def test_stdio_runs_as_the_configured_caller(live_gateway):
-    """No headers on stdio: identity is MCP_STDIO_CALLER, and the tenant guard still applies."""
+@pytest.mark.parametrize(("scopes", "masked"), [("read", True), ("read pii:read", False)])
+async def test_stdio_runs_with_the_configured_scopes(live_gateway, scopes, masked):
+    """No headers on stdio: permissions come from MCP_STDIO_SCOPES."""
     params = StdioServerParameters(
-        command=sys.executable, args=SERVER, env=server_env(live_gateway, caller="bob")
+        command=sys.executable, args=SERVER, env=server_env(live_gateway, scopes)
     )
     async with Client(params) as c:
-        own = await c.call_tool("get_account_summary", {})
-        foreign = await c.call_tool("get_account_summary", {"account_id": "ACC-1001"})
-    assert own.structured_content["account_id"] == "ACC-2001"
-    assert foreign.is_error
+        r = await c.call_tool("list_subscriptions", {"account_id": "ACC-1001", "limit": 1})
+    assert ("*" in r.structured_content["items"][0]["msisdn"]) is masked
+
+
+def test_stdio_refuses_unknown_scopes(live_gateway):
+    env = {**os.environ, **server_env(live_gateway, "read admin")}
+    r = subprocess.run(  # noqa: S603 - fixed argv, our own module
+        [sys.executable, *SERVER], env=env, stdin=subprocess.DEVNULL,
+        capture_output=True, timeout=60, text=True,
+    )  # fmt: skip
+    assert r.returncode != 0 and "unknown scopes ['admin']" in r.stderr

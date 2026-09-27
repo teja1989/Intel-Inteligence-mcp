@@ -1,7 +1,6 @@
 """JWT access-token validation for tokens from the internal token service.
 
-Implements the SDK's `TokenVerifier` protocol, the same seam as the lab's
-`StaticTokenVerifier`, so nothing downstream changes. The checks are in order,
+Implements the SDK's `TokenVerifier` protocol. The checks are in order,
 and every failure returns None, which the SDK turns into `401 invalid_token`:
 
 1. Header: `alg` must be on the configured allow-list (asymmetric only, so

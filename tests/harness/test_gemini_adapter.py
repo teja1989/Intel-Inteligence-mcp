@@ -18,7 +18,7 @@ from telco_mcp_lab.harness.agent import Agent
 from telco_mcp_lab.harness.llm_gemini import REFUSED, GeminiChatModel, to_gemini_contents
 from telco_mcp_lab.harness.settings import GeminiSettings
 from telco_mcp_lab.harness.trace import Tracer
-from tests.conftest import server_as
+from tests.conftest import server_with
 
 KEY = "gemini-test-key-0123456789"
 SIG = base64.b64encode(b"signature-1").decode()
@@ -57,7 +57,7 @@ class FakeGemini:
 
 
 async def ask(fake: FakeGemini, prompt: str, mock_telco_factory):
-    async with Client(server_as("alice", mock_telco_factory)) as mcp:
+    async with Client(server_with(mock_telco_factory)) as mcp:
         return await Agent(fake.model(), mcp, Tracer(out=io.StringIO())).ask(prompt)
 
 
@@ -128,7 +128,7 @@ class TestLoop:
         fake = FakeGemini(
             response(
                 [
-                    call("get_order_status", {"order_id": "ORD-000456"}),
+                    call("get_order_status", {"order_id": "ORD-999999"}),
                     call("list_orders", {"account_id": "ACC-1001"}),
                 ]
             ),  # fmt: skip
@@ -138,7 +138,7 @@ class TestLoop:
         tool_turns = [c for c in fake.body(1)["contents"] if c["role"] == "tool"]
         (only,) = tool_turns
         first, second = (p["functionResponse"] for p in only["parts"])
-        assert "error" in first["response"]  # ORD-000456 is tenant B's: refused
+        assert "error" in first["response"]  # ORD-999999 doesn't exist: not found
         assert "result" in second["response"]
 
     async def test_blocked_prompt(self, mock_telco_factory):
