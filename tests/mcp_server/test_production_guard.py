@@ -8,15 +8,15 @@ from pathlib import Path
 
 import pytest
 
-from telco_mcp_lab.mcp_server.http_app import build_http_app
-from telco_mcp_lab.mcp_server.security.clients import ClientRegistry
-from telco_mcp_lab.mcp_server.security.environment import (
+from telco_mcp.http_app import build_http_app
+from telco_mcp.security.clients import ClientRegistry
+from telco_mcp.security.environment import (
     ProductionFacts,
     UnsafeProductionConfig,
     enforce,
     production_problems,
 )
-from telco_mcp_lab.mcp_server.settings import JwtSettings, McpServerSettings
+from telco_mcp.settings import JwtSettings, McpServerSettings
 from tests.conftest import make_telco
 
 pytestmark = pytest.mark.security
@@ -45,6 +45,7 @@ class TestRules:
         [
             ({"transport": "stdio"}, "stdio"),
             ({"legacy_sessions": True}, "legacy-sessions"),
+            ({"log_format": "text"}, "MCP_LOG_FORMAT must be json"),
             ({"unsafe_raw_free_text": True}, "UNSAFE_RAW"),
             ({"public_url": "http://mcp.corp-telco.com/mcp"}, "MCP_PUBLIC_URL must be https"),
             ({"public_url": "https://127.0.0.1:8090/mcp"}, "MCP_PUBLIC_URL uses a local"),
@@ -109,7 +110,7 @@ class TestRegistryTags:
             ClientRegistry.load(registry_file(tmp_path, {"x": bad}), "dev")
 
     def test_repo_sample_registry_would_not_pass_production(self):
-        r = ClientRegistry.load(REPO / "config" / "clients.json", "production")
+        r = ClientRegistry.load(REPO / "server" / "config" / "clients.json", "production")
         assert r.problems  # the lab sample is not a production registry
 
 
@@ -121,7 +122,12 @@ class TestWiring:
         s = McpServerSettings(
             _env_file=None,
             clients_config=registry_file(tmp_path, clients),
-            **{"environment": "production", "public_url": PROD.public_url, **settings},
+            **{
+                "environment": "production",
+                "public_url": PROD.public_url,
+                "log_format": "json",
+                **settings,
+            },
         )
         js_kw = {"jwks_url": PROD.jwt_jwks_url} if "jwks_file" not in settings else {}
         js = JwtSettings(_env_file=None, issuer=PROD.jwt_issuer, audience=PROD.jwt_audience,
@@ -154,7 +160,7 @@ class TestWiring:
     def test_stdio_process_exits_in_production(self):
         env = {**os.environ, "MCP_ENVIRONMENT": "production"}
         r = subprocess.run(  # noqa: S603 - fixed argv, our own module
-            [sys.executable, "-m", "telco_mcp_lab.mcp_server"],
+            [sys.executable, "-m", "telco_mcp"],
             cwd=REPO, env=env, stdin=subprocess.DEVNULL, capture_output=True, timeout=60,
             text=True,
         )  # fmt: skip

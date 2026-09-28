@@ -12,14 +12,14 @@ import uvicorn
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from telco_mcp.clients.gateway import GatewayClientSettings, StaticTokenProvider
+from telco_mcp.clients.telco import TelcoApiClient
+from telco_mcp.gateway_routes import GatewayRoutes
+from telco_mcp.http_app import build_http_app
+from telco_mcp.security.clients import ClientContext, Scope
+from telco_mcp.server import build_server
+from telco_mcp.settings import JwtSettings, McpServerSettings
 from telco_mcp_lab.devtools.token_issuer import generate_key, jwks_for, mint
-from telco_mcp_lab.gateway_routes import GatewayRoutes
-from telco_mcp_lab.mcp_server.clients.gateway import GatewayClientSettings, StaticTokenProvider
-from telco_mcp_lab.mcp_server.clients.telco import TelcoApiClient
-from telco_mcp_lab.mcp_server.http_app import build_http_app
-from telco_mcp_lab.mcp_server.security.clients import ClientContext, Scope
-from telco_mcp_lab.mcp_server.server import build_server
-from telco_mcp_lab.mcp_server.settings import JwtSettings, McpServerSettings
 from telco_mcp_lab.mock_apis.app import create_app
 from telco_mcp_lab.mock_apis.settings import MockApiSettings
 

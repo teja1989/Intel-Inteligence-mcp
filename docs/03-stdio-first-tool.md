@@ -21,8 +21,8 @@ flowchart LR
     subgraph Host["Host process (Inspector / stdio_demo.py / Claude Desktop …)"]
         C[MCP client]
     end
-    C -- "spawns + stdin/stdout<br/>newline-delimited JSON-RPC" --> T["scripts/stdio_trace.py<br/>(optional wire logger)"]
-    T -- "stdin/stdout" --> S["python -m telco_mcp_lab.mcp_server<br/>MCPServer + get_account_summary"]
+    C -- "spawns + stdin/stdout<br/>newline-delimited JSON-RPC" --> T["lab/scripts/stdio_trace.py<br/>(optional wire logger)"]
+    T -- "stdin/stdout" --> S["python -m telco_mcp<br/>MCPServer + get_account_summary"]
     S -- "stderr: logs" --> Host
     S -- "HTTPS-style REST<br/>Bearer service token" --> G[(Mock gateway<br/>:8081)]
 ```
@@ -35,7 +35,7 @@ flowchart LR
 
 ## 2. Anatomy of a tool
 
-`src/telco_mcp_lab/mcp_server/tools/account.py`:
+`server/src/telco_mcp/tools/account.py`:
 
 | Part | Our value | Why | Spring AI 2.0 equivalent |
 |---|---|---|---|
@@ -230,8 +230,8 @@ web mode starts and prints its URL. The browser UI itself was not clicked throug
    local processes; keep it.
 2. Transport = **STDIO**. The command should be pre-filled from the launch
    arguments (not verified in the browser here). If it isn't, enter command `uv`
-   with arguments `run --quiet python scripts/stdio_trace.py uv run --quiet python -m
-   telco_mcp_lab.mcp_server`, working directory = repo root. Click **Connect**.
+   with arguments `run --quiet python lab/scripts/stdio_trace.py uv run --quiet python -m
+   telco_mcp`, working directory = repo root. Click **Connect**.
 3. **Tools → List Tools → get_account_summary**, enter `ACC-1001`, **Run Tool**.
 4. Try `ACC-9999`, then `acc-1`, and compare the two error texts.
 5. Watch the terminal: every JSON-RPC message is printed by the trace proxy

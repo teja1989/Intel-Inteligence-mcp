@@ -18,7 +18,7 @@ from tests.conftest import TEST_TOKEN
 
 pytestmark = pytest.mark.protocol
 
-SERVER = ["-m", "telco_mcp_lab.mcp_server", "--log-level", "WARNING"]
+SERVER = ["-m", "telco_mcp", "--log-level", "WARNING"]
 
 
 READ_TOOLS = [
@@ -77,7 +77,7 @@ def test_stdout_carries_only_json_rpc_and_eof_shuts_down(live_gateway):
         },
     ]
     proc = subprocess.Popen(  # noqa: S603 - our own interpreter and module
-        [sys.executable, "-m", "telco_mcp_lab.mcp_server", "--log-level", "DEBUG"],
+        [sys.executable, "-m", "telco_mcp", "--log-level", "DEBUG"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,

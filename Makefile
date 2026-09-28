@@ -26,10 +26,14 @@ endif
 LOAD_ENV := set -a; [ -f .env ] && . ./.env; set +a
 MOCK_URL  = http://$${MOCK_HOST:-127.0.0.1}:$${MOCK_PORT:-8081}
 
+# Local default for the server's client registry (the image uses /app/config/clients.json).
+# A value in .env wins (recipes that load .env); `make env-update` flags a stale one.
+export MCP_CLIENTS_CONFIG ?= server/config/clients.json
+
 # MCP server over stdio, and the same behind the wire-tracing proxy.
 INSPECTOR  := npx -y @modelcontextprotocol/inspector@2.8.0
-SERVER_CMD := $(UV) run --quiet python -m telco_mcp_lab.mcp_server
-TRACED_CMD := $(UV) run --quiet python scripts/stdio_trace.py $(SERVER_CMD)
+SERVER_CMD := $(UV) run --quiet python -m telco_mcp
+TRACED_CMD := $(UV) run --quiet python lab/scripts/stdio_trace.py $(SERVER_CMD)
 ACCOUNT    ?= ACC-1001
 
 ##@ Setup
@@ -50,7 +54,7 @@ doctor: ## Check prerequisites (uv, Python 3.12, Node, .env, ports, proxy) with 
 	if command -v node >/dev/null 2>&1; then echo "✅ node $$(node --version) (Inspector needs >= 22.19)"; \
 	else echo "ℹ️  node not found: only needed for MCP Inspector (make inspector*)"; fi; \
 	if [ -f .env ]; then echo "✅ .env present"; \
-	  command -v $(UV) >/dev/null 2>&1 && $(UV) run --quiet python scripts/env_update.py --check; \
+	  command -v $(UV) >/dev/null 2>&1 && $(UV) run --quiet python lab/scripts/env_update.py --check; \
 	else echo "ℹ️  no .env yet: run make env"; fi; \
 	for p in 8081 8090; do \
 	  if (exec 3<>/dev/tcp/127.0.0.1/$$p) 2>/dev/null; then echo "⚠️  port $$p already in use (MOCK_PORT / MCP_PORT to change)"; \
@@ -73,7 +77,7 @@ env: ## Create .env from .env.example with fresh random tokens (won't overwrite 
 	  chmod 600 .env; echo "Created .env (mode 600) with a random gateway token + dev secret."; fi
 
 env-update: ## Add settings that are new in .env.example to your existing .env (never overwrites)
-	@$(RUN) python scripts/env_update.py $${CHECK:+--check}
+	@$(RUN) python lab/scripts/env_update.py $${CHECK:+--check}
 
 env-tokens: ## Add a missing dev token service secret to an EXISTING .env
 	@for v in DEV_TOKEN_SERVICE_CLIENT_SECRET; do \
@@ -93,10 +97,10 @@ mcp-stdio: ## Run the MCP server on stdio (normally a client launches it; useful
 	$(SERVER_CMD)
 
 demo-stdio: ## Python MCP client: 2026-07-28 protocol, list + call + error, with the raw wire trace
-	$(RUN) python scripts/stdio_demo.py --trace
+	$(RUN) python lab/scripts/stdio_demo.py --trace
 
 demo-stdio-legacy: ## Same, forcing the pre-2026 initialize handshake (what Spring AI speaks today)
-	$(RUN) python scripts/stdio_demo.py --legacy --trace
+	$(RUN) python lab/scripts/stdio_demo.py --legacy --trace
 
 inspector: ## MCP Inspector web UI on 127.0.0.1:6274, launching our server through the trace proxy
 	$(INSPECTOR) $(TRACED_CMD)
@@ -112,7 +116,7 @@ traces: ## List captured JSON-RPC wire traces (.data/traces, gitignored, contain
 	@ls -1t .data/traces/*.jsonl 2>/dev/null | head -20 || echo "No traces yet."
 
 ##@ MCP server over stateless Streamable HTTP (JWT auth; mock gateway must be running)
-.PHONY: dev-keys token mcp-http mcp-cluster demo-http demo-injection inspector-http test-jwt
+.PHONY: dev-keys token mcp-http mcp-cluster demo-http load-test demo-injection inspector-http test-jwt
 # HTTP always needs JWT settings. If .env has no MCP_JWT_ISSUER, trust the local DEV keys.
 DEV_JWT_ENV := MCP_JWT_ISSUER=https://token-service.dev.invalid \
   MCP_JWT_AUDIENCE=http://127.0.0.1:8090/mcp MCP_JWT_JWKS_FILE=.data/dev-keys/jwks.json \
@@ -130,27 +134,47 @@ token: ## DEV ONLY: print a 2 h token: make token [CLIENT=care-agent-internal SC
 	@$(RUN) python -m telco_mcp_lab.devtools.token_issuer mint --client "$(CLIENT)" --scopes "$(SCOPES)"
 
 mcp-http: ## MCP server on http://127.0.0.1:8090/mcp (stateless, JWT; dev keys unless MCP_JWT_* set)
-	@$(JWT_ENV); $(RUN) python -m telco_mcp_lab.mcp_server --transport http
+	@$(JWT_ENV); $(RUN) python -m telco_mcp --transport http
 
 mcp-cluster: ## 2 replicas (:8091, :8092) behind a round-robin LB on :8099 (Ctrl-C stops all)
 	@$(JWT_ENV); trap 'kill 0' INT TERM EXIT; \
-	$(RUN) python -m telco_mcp_lab.mcp_server --transport http --port 8091 $${LEGACY:+--legacy-sessions} & \
-	$(RUN) python -m telco_mcp_lab.mcp_server --transport http --port 8092 $${LEGACY:+--legacy-sessions} & \
+	$(RUN) python -m telco_mcp --transport http --port 8091 $${LEGACY:+--legacy-sessions} & \
+	$(RUN) python -m telco_mcp --transport http --port 8092 $${LEGACY:+--legacy-sessions} & \
 	$(RUN) python -m telco_mcp_lab.devtools.round_robin_lb --port 8099 \
 	  --backend http://127.0.0.1:8091 --backend http://127.0.0.1:8092 & \
 	echo "cluster: http://127.0.0.1:8099/mcp  (LEGACY=1 to see sticky-session failure)"; wait
 
 demo-http: ## Walk through tokens, clients, scopes, masking, IDs over HTTP (URL=… for the cluster)
-	$(RUN) python scripts/http_demo.py $${URL:+--url $$URL}
+	$(RUN) python lab/scripts/http_demo.py $${URL:+--url $$URL}
+
+load-test: ## Load test over HTTP: N calls (2000), C concurrent (20), URL=… (needs mocks + a server)
+	$(RUN) python lab/scripts/load_test.py -n $${N:-2000} -c $${C:-20} $${URL:+--url $$URL}
 
 demo-injection: ## Before/after: the prompt-injection note as the model would see it
-	$(RUN) python scripts/injection_demo.py
+	$(RUN) python lab/scripts/injection_demo.py
 
 inspector-http: ## Inspector web UI; connect to http://127.0.0.1:8090/mcp with header Authorization: Bearer <make token>
 	$(INSPECTOR)
 
 test-jwt: ## Run only the JWT / client-registry tests
 	$(RUN) pytest tests/mcp_server/test_jwt_auth.py -v
+
+##@ Container image (the server only; same image for Cloud Foundry and EKS)
+.PHONY: docker-build docker-run
+IMAGE ?= telco-mcp-server:dev
+
+docker-build: ## Build the production image. Behind a TLS-intercepting proxy: CORP_CA=/path/root-ca.pem
+	docker build $${CORP_CA:+--secret id=corp_ca,src=$$CORP_CA} \
+	  $${HTTPS_PROXY:+--network host --build-arg HTTPS_PROXY=$$HTTPS_PROXY --build-arg HTTP_PROXY=$$HTTP_PROXY} \
+	  -t $(IMAGE) .
+
+docker-run: ## Run the image on :8093 against the local mocks, trusting the dev keys (Ctrl-C stops)
+	@[ -f .data/dev-keys/jwks.json ] || { echo "run: make dev-keys"; exit 1; }
+	@$(LOAD_ENV); docker run --rm --network host -e PORT=8093 \
+	  -e GATEWAY_BASE_URL=http://127.0.0.1:$${MOCK_PORT:-8081} -e GATEWAY_TOKEN="$$GATEWAY_TOKEN" \
+	  -e MCP_JWT_ISSUER=https://token-service.dev.invalid -e MCP_JWT_AUDIENCE=http://127.0.0.1:8090/mcp \
+	  -e MCP_JWT_JWKS_FILE=/keys/jwks.json -e 'MCP_ALLOWED_HOSTS=["127.0.0.1:*","localhost:*"]' \
+	  -v $(CURDIR)/.data/dev-keys/jwks.json:/keys/jwks.json:ro $(IMAGE)
 
 ##@ Developer tools with the shared lower-env client (docs/09; local stand-ins)
 .PHONY: dev-token-service connect-local connect-check test-connect
@@ -167,7 +191,7 @@ connect-local: ## Write .data/connect/local.env: connector config for the LOCAL 
 	  "TELCO_MCP_URL=http://127.0.0.1:8090/mcp" \
 	  "TELCO_MCP_TOKEN_URL=http://127.0.0.1:8095/oauth/token" \
 	  "TELCO_MCP_CLIENT_ID=lowerenv-shared" \
-	  "TELCO_MCP_SECRET_COMMAND=$(CURDIR)/.venv/bin/python $(CURDIR)/scripts/local_dev_secret.py" \
+	  "TELCO_MCP_SECRET_COMMAND=$(CURDIR)/.venv/bin/python $(CURDIR)/lab/scripts/local_dev_secret.py" \
 	  > .data/connect/local.env
 	@chmod 600 .data/connect/local.env; echo "wrote .data/connect/local.env (use with --config)"
 
@@ -185,7 +209,7 @@ export HARNESS_LLM := $(LLM)
 endif
 
 model-check: ## Real model E2E: reply, tool call, follow-up, tool error (LLM=gemini|claude|azure)
-	$(RUN) python scripts/model_check.py
+	$(RUN) python lab/scripts/model_check.py
 
 ##@ LLM harness CLI: Claude / Gemini / Azure OpenAI as the MCP host (needs mocks; stdio by default)
 .PHONY: harness-check ask chat
@@ -237,7 +261,7 @@ test-security: ## Run only security-marked tests (auth, scope/ID matrix, masking
 	$(RUN) pytest -m security -v
 
 smoke: ## Real-HTTP walkthrough against the RUNNING mock gateway (start `make mocks` first)
-	$(RUN) python scripts/smoke_mocks.py
+	$(RUN) python lab/scripts/smoke_mocks.py
 
 lint: ## Ruff lint + format check (includes bandit-style security rules)
 	$(RUN) ruff check .
@@ -252,7 +276,7 @@ check: lint test ## Everything CI would run: lint + full test suite
 ##@ Contract for external agents
 .PHONY: catalog
 catalog: ## Regenerate docs/tool-catalog.md from the live tool definitions (a test enforces it)
-	$(RUN) python -m telco_mcp_lab.mcp_server.catalog
+	$(RUN) python -m telco_mcp.catalog
 
 ##@ Housekeeping
 .PHONY: reset-data clean

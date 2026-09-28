@@ -53,7 +53,7 @@ If there are no keys at all, every request gets 401 (fail closed). All of this i
 signed token. Headers are only trustworthy if nothing can reach the server
 except through the gateway, and the token is the stronger proof anyway.
 
-## 3. Client registry (`config/clients.json`)
+## 3. Client registry (`server/config/clients.json`)
 
 A valid token is **necessary, not sufficient**: the `client_id` must be
 registered.

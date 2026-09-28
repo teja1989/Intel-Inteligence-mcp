@@ -1,0 +1,9 @@
+# Only what the Dockerfile copies is needed; keep secrets and local state out.
+*
+!pyproject.toml
+!uv.lock
+!server/pyproject.toml
+!server/src/**
+!server/config/clients.json
+!lab/pyproject.toml
+**/__pycache__

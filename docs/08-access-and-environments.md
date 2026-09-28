@@ -42,7 +42,7 @@
 | Automation (CI, test scripts, harness) | yes | shared lower-env client ID | never, except as a registered app |
 | Agent apps | dev copies | test deployments | **registered production client IDs only** |
 | Token issuer / audience | dev values | lower-env values | production-only values |
-| Client registry | `config/clients.json` (sample) | lower-env registry | production registry (no lower-env IDs, no user access) |
+| Client registry | `server/config/clients.json` (sample) | lower-env registry | production registry (no lower-env IDs, no user access) |
 
 ## 3. The four ways in
 

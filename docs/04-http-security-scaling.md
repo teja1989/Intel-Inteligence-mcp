@@ -28,19 +28,19 @@ sequenceDiagram
     participant G as API gateway (mock)
     H->>LB: POST /mcp  Authorization: Bearer <JWT><br/>MCP-Protocol-Version: 2026-07-28
     LB->>S: (next replica, no stickiness)
-    Note over S: ① Host/Origin check (DNS rebinding) → 403<br/>② JWT verifier → 401 + WWW-Authenticate<br/>③ ClientContext {client_id, scopes} (config/clients.json)<br/>④ tools/list filtered · tools/call scope-enforced<br/>⑤ arguments schema-checked (strict ID formats)
+    Note over S: ① Host/Origin check (DNS rebinding) → 403<br/>② JWT verifier → 401 + WWW-Authenticate<br/>③ ClientContext {client_id, scopes} (server/config/clients.json)<br/>④ tools/list filtered · tools/call scope-enforced<br/>⑤ arguments schema-checked (strict ID formats)
     S->>G: GET /boorder/API/order/ORD-000123<br/>Authorization: Bearer <SERVER's own token>
     G-->>S: order {account_id: ACC-1001, …}
     Note over S: ⑥ rows filtered to the requested ID · ⑦ shaping (mask/withhold)<br/>⑧ audit line (client + IDs, no payloads)
     S-->>H: result (isError=false) or actionable tool error
 ```
 
-Code map (`src/telco_mcp_lab/mcp_server/`):
+Code map (`server/src/telco_mcp/`):
 
 | Layer | File | Responsibility |
 |---|---|---|
 | security | `security/jwt_verifier.py` | **Auth seam**: `JwtTokenVerifier` implements the SDK `TokenVerifier` protocol (docs/07) |
-| security | `security/clients.py` | `ClientContext`, `ClientRegistry` (config/clients.json), `resolve_client()` |
+| security | `security/clients.py` | `ClientContext`, `ClientRegistry` (server/config/clients.json), `resolve_client()` |
 | security | `security/scoped_server.py` | `ScopedMCPServer`: per-client `list_tools`, enforced `call_tool`, audit, friendly arg errors |
 | security | `security/audit.py` | One JSON line per tool call: client, IDs touched, outcome; no payloads |
 | tools | `tools/account.py`, `tools/lines.py`, `tools/orders.py` | 5 read tools |
@@ -48,6 +48,7 @@ Code map (`src/telco_mcp_lab/mcp_server/`):
 | clients | `clients/telco.py`, `clients/resilience.py` | Typed gateway client; retry + breaker |
 | errors | `errors/tool_errors.py` | Failures → actionable, non-leaky tool errors |
 | transport | `http_app.py`, `__main__.py` | Stateless Streamable HTTP app; stdio |
+| observability | `observability/` | ECS JSON logs, access log, OpenTelemetry (docs/10) |
 
 ## 2. Stateless Streamable HTTP, and why it scales
 
@@ -91,7 +92,7 @@ There is **one** identity concept: the **client**, i.e. the agent application ca
 
 ```
 HTTP : Authorization: Bearer <JWT> → JwtTokenVerifier (signature, iss, aud, exp, lifetime; docs/07)
-                                   → client_id + token scopes → config/clients.json
+                                   → client_id + token scopes → server/config/clients.json
                                    → ClientContext(client_id, scopes = token ∩ allowed, via="http")
 stdio: no headers → ClientContext("stdio", MCP_STDIO_SCOPES, via="stdio")
        (whoever can start the process already has local trust; production refuses stdio, docs/08)
@@ -101,7 +102,7 @@ stdio: no headers → ClientContext("stdio", MCP_STDIO_SCOPES, via="stdio")
   gets nothing (zero tools, every call refused, audited as `denied`).
 * **Scopes** = the token's scopes (mapped via `scope_map`) ∩ the client's
   `allowed_scopes`. Unknown scopes are ignored (fail closed).
-* **Lab clients** (`config/clients.json`, placeholders): `lowerenv-shared` (read,
+* **Lab clients** (`server/config/clients.json`, placeholders): `lowerenv-shared` (read,
   lower environments only), `care-agent-internal` (read + pii:read),
   `ops-dashboard` (read). Mint a local token with `make token CLIENT=… SCOPES=…`.
 * **Without a token** the SDK answers before any MCP handling (captured):

@@ -19,7 +19,7 @@ from tests.conftest import server_with
 from tests.harness.test_agent import ScriptedModel, call, say
 
 REPO = Path(__file__).parents[2]
-RAILS = Guardrails.load(REPO / "config" / "guardrails.json")
+RAILS = Guardrails.load(REPO / "lab" / "config" / "guardrails.json")
 
 
 def system_message(model: ScriptedModel) -> str:
@@ -40,7 +40,7 @@ async def ask(server, model, prompt, **kw):
 # ------------------------------------------------------------------------ prompt layering
 class TestSystemPrompt:
     def test_repo_prompt_loads_and_comments_are_stripped(self):
-        text = load_system_prompt(REPO / "prompts" / "agent.system.md")
+        text = load_system_prompt(REPO / "lab" / "prompts" / "agent.system.md")
         assert text.startswith("You are a customer-care assistant")
         assert "<!--" not in text and "eval-gated" not in text.lower()
 

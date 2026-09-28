@@ -35,7 +35,7 @@ flowchart LR
 |---|---|---|---|
 | **Host** | The application the user talks to. It owns the LLM conversation, decides what the model sees, and **asks the human for consent** on dangerous actions. | `harness/` (Phase 5): a Python script plus Azure OpenAI | Your agent app / chat UI |
 | **Client** | A protocol connector *inside* the host. One client per server connection. | `mcp` SDK `Client` class, used by the harness | Spring AI `McpSyncClient` / `McpAsyncClient` |
-| **Server** | Exposes capabilities (tools, resources, prompts) over MCP. Knows nothing about the LLM. | `mcp_server/` (Phase 2+) | Spring Boot 4.1 + Spring AI 2.0 MCP server on Cloud Foundry |
+| **Server** | Exposes capabilities (tools, resources, prompts) over MCP. Knows nothing about the LLM. | `server/` (package `telco_mcp`) | Spring Boot 4.1 + Spring AI 2.0 MCP server on Cloud Foundry |
 
 **Key insight:** the model never talks to your server. The model emits a
 *function call* ("call `get_account_summary` with …"), and the **host** decides

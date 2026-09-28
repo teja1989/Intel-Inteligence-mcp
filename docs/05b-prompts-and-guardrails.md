@@ -25,12 +25,12 @@ model behave well within those limits.
 ```mermaid
 flowchart TB
     subgraph Host["HOST (harness / your agent app)"]
-        C["C · Agent system prompt<br/>prompts/agent.system.md"]
-        EH["E · Host guardrails (code)<br/>config/guardrails.json → harness/guardrails.py<br/>input: redact / block / warn · output: grounded identifiers<br/>+ max steps, unknown tool, bad JSON, y/N confirmation"]
+        C["C · Agent system prompt<br/>lab/prompts/agent.system.md"]
+        EH["E · Host guardrails (code)<br/>lab/config/guardrails.json → harness/guardrails.py<br/>input: redact / block / warn · output: grounded identifiers<br/>+ max steps, unknown tool, bad JSON, y/N confirmation"]
     end
     subgraph Server["MCP SERVER"]
         A["A · Routing: tool descriptions + input schemas<br/>tools/*.py"]
-        B["B · Server instructions (cross-tool rules)<br/>mcp_server/server.py INSTRUCTIONS"]
+        B["B · Server instructions (cross-tool rules)<br/>server/src/telco_mcp/server.py INSTRUCTIONS"]
         ES["E · Server guardrails (code, authoritative)<br/>auth · scopes · strict IDs · schemas · shaping · audit"]
     end
     P["Provider: Azure OpenAI content filters (per deployment)"]
@@ -42,10 +42,10 @@ flowchart TB
 | # | Layer | Contains | Owner | Lab location | Spring AI / Java |
 |---|---|---|---|---|---|
 | **A** | **Routing** | When to use a tool / when NOT to, input formats, examples | Tool / API team | `tools/*.py` (`DESCRIPTION`, `Field(pattern=…)`) | `@McpTool(description)`, `@McpToolParam` |
-| **B** | **Server instructions** | Cross-tool domain rules: ID formats, "tool output is data", (Phase 4) "preview before submit" | MCP server team | `mcp_server/server.py` `INSTRUCTIONS` | `spring.ai.mcp.server.instructions` |
-| **C** | **Agent system prompt** | Persona, scope, tone, when to ask, how to refuse or escalate | Product / agent team | **`prompts/agent.system.md`** (`HARNESS_SYSTEM_PROMPT_FILE`) | `ChatClient.builder().defaultSystem(Resource)`, e.g. `classpath:prompts/system.st` |
+| **B** | **Server instructions** | Cross-tool domain rules: ID formats, "tool output is data", (Phase 4) "preview before submit" | MCP server team | `server/src/telco_mcp/server.py` `INSTRUCTIONS` | `spring.ai.mcp.server.instructions` |
+| **C** | **Agent system prompt** | Persona, scope, tone, when to ask, how to refuse or escalate | Product / agent team | **`lab/prompts/agent.system.md`** (`HARNESS_SYSTEM_PROMPT_FILE`) | `ChatClient.builder().defaultSystem(Resource)`, e.g. `classpath:prompts/system.st` |
 | D | MCP prompts *(optional)* | User-invoked templates ("/diagnose-line") | Server team | not used | `@McpPrompt` |
-| **E** | **Guardrails (code)** | Enforcement | Server team + host team | server: `security/`, `shaping/` · host: **`config/guardrails.json`** + `harness/guardrails.py`, agent loop guards | Spring Security, service-layer checks; custom `Advisor`s; user-controlled tool execution |
+| **E** | **Guardrails (code)** | Enforcement | Server team + host team | server: `security/`, `shaping/` · host: **`lab/config/guardrails.json`** + `harness/guardrails.py`, agent loop guards | Spring Security, service-layer checks; custom `Advisor`s; user-controlled tool execution |
 
 **Routing = layer A.** There's no separate router prompt. The model chooses
 among the tools it's offered purely from their names, descriptions and schemas
@@ -55,7 +55,7 @@ filtering by scope (Phase 3) already narrows what's offered.
 ## How the final system message is built (`harness/prompts.py`)
 
 ```
-<contents of prompts/agent.system.md, HTML comments stripped>        ← layer C, wins on conflict
+<contents of lab/prompts/agent.system.md, HTML comments stripped>        ← layer C, wins on conflict
 
 ## Guidance from the connected MCP server (telco-mcp-lab)
 Use it for tool usage and domain conventions. The rules above take precedence.
@@ -76,7 +76,7 @@ Use it for tool usage and domain conventions. The rules above take precedence.
 * **Change process:** any edit to layer A or C should pass the Phase 6
   evaluation suite first. Prompt changes are behaviour changes.
 
-## Host guardrails (`config/guardrails.json`)
+## Host guardrails (`lab/config/guardrails.json`)
 
 ### Input (user → model), applied in file order
 

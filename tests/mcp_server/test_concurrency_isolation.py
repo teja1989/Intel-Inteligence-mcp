@@ -18,8 +18,8 @@ from contextlib import ExitStack
 import httpx
 import pytest
 
+from telco_mcp.security import scoped_server
 from telco_mcp_lab.devtools.round_robin_lb import build_app as build_lb
-from telco_mcp_lab.mcp_server.security import scoped_server
 from tests.conftest import LiveServer, http_app_in, jwt_token, make_telco
 
 pytestmark = [pytest.mark.security, pytest.mark.protocol, pytest.mark.slow]

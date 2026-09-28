@@ -8,13 +8,13 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from telco_mcp.security.jwt_verifier import JwtTokenVerifier
+from telco_mcp.settings import JwtSettings
 from telco_mcp_lab.connect.__main__ import load_settings
 from telco_mcp_lab.connect.settings import ConnectSettings
 from telco_mcp_lab.connect.token import ClientCredentials, TokenError
 from telco_mcp_lab.devtools.token_issuer import generate_key, jwks_for, mint
 from telco_mcp_lab.devtools.token_service import create_app
-from telco_mcp_lab.mcp_server.security.jwt_verifier import JwtTokenVerifier
-from telco_mcp_lab.mcp_server.settings import JwtSettings
 
 pytestmark = pytest.mark.security
 

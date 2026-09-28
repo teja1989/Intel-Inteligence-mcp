@@ -1,0 +1,33 @@
+[project]
+name = "telco-mcp-server"
+version = "0.4.0"
+description = "Stateless MCP server over the telecom domain APIs. The only package that ships (Docker image)."
+requires-python = ">=3.12,<3.13"
+# Exact pins; uv.lock pins every transitive dependency. Keep this list minimal:
+# every entry ends up in the production image. tests/test_architecture.py checks
+# that the server imports nothing else.
+dependencies = [
+    "httpx==0.28.1",
+    "mcp==2.2.0",
+    # Observability (docs/10): W3C trace context, spans and log export over OTLP.
+    "opentelemetry-api==1.45.0",
+    "opentelemetry-sdk==1.45.0",
+    "opentelemetry-exporter-otlp-proto-http==1.45.0",
+    "opentelemetry-instrumentation-asgi==0.66b0",
+    "opentelemetry-instrumentation-httpx==0.66b0",
+    "pydantic==2.13.5",
+    "pydantic-settings==2.15.0",
+    "pyjwt[crypto]==2.15.0",
+    "starlette==1.7.0",       # imported directly (routes, responses); also pulled in by mcp
+    "uvicorn==0.54.0",
+]
+
+[project.scripts]
+telco-mcp = "telco_mcp.__main__:main"
+
+[build-system]
+requires = ["uv_build>=0.8.17,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "telco_mcp"

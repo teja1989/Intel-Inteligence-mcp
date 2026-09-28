@@ -27,7 +27,7 @@ as an untrusted third party** (see docs/06).
 | Real token validation (issuer, expiry, audience per RFC 8707) | ✅ E2 (dev keys) | JWKS signature, iss, aud, exp, lifetime, alg allow-list; real token-service values to confirm (docs/07 §6) |
 | Customer context for multi-customer agents | ⚠️ accepted risk | none: the account ID is a tool argument (decision 2026-09-27, docs/08 §1.6); external agents would need a server-verified handle (B2), parked |
 | Scope challenges / step-up (`403 insufficient_scope` + scope hint) | ⚠️ → E2 | today hidden = unknown; keep hiding what a client can *never* get, challenge where step-up is possible |
-| Per-agent-client policy (allowed scopes/tools, PII) | ✅ E2 | `config/clients.json`; effective scopes = granted ∩ allowed; unregistered = nothing |
+| Per-agent-client policy (allowed scopes/tools, PII) | ✅ E2 | `server/config/clients.json`; effective scopes = granted ∩ allowed; unregistered = nothing |
 | Customer isolation | ❌ by decision | any `read` client reads any account; compensated by scopes, masking, strict IDs, per-ID audit; per-request isolation (no client/account bleed) tested under concurrency |
 | **Data protection & guardrails** | | |
 | PII minimisation/masking; IMSI/ICCID never returned | ✅ | |

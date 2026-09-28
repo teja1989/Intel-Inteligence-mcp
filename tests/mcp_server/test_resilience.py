@@ -5,9 +5,9 @@ import pytest
 import respx
 from mcp import Client
 
-from telco_mcp_lab.gateway_routes import DomainApi
-from telco_mcp_lab.mcp_server.clients.resilience import BreakerState, CircuitBreaker, RetryPolicy
-from telco_mcp_lab.mcp_server.clients.telco import GatewayError, GatewayUnavailable
+from telco_mcp.clients.resilience import BreakerState, CircuitBreaker, RetryPolicy
+from telco_mcp.clients.telco import GatewayError, GatewayUnavailable
+from telco_mcp.gateway_routes import DomainApi
 from tests.conftest import GATEWAY_URL, TEST_TOKEN, make_telco, server_with
 
 ORDER_URL = f"{GATEWAY_URL}/boorder/API/order/ORD-000123"

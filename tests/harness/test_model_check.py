@@ -1,4 +1,4 @@
-"""scripts/model_check.py end to end: scripted model, real MCP server over HTTP."""
+"""lab/scripts/model_check.py end to end: scripted model, real MCP server over HTTP."""
 
 import importlib.util
 from pathlib import Path
@@ -11,7 +11,7 @@ from tests.conftest import LiveServer, http_app_in, jwt_token, make_telco
 from tests.harness.test_agent import ScriptedModel, call, say
 
 REPO = Path(__file__).parents[2]
-spec = importlib.util.spec_from_file_location("model_check", REPO / "scripts/model_check.py")
+spec = importlib.util.spec_from_file_location("model_check", REPO / "lab/scripts/model_check.py")
 model_check = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(model_check)
 
@@ -22,8 +22,8 @@ pytestmark = pytest.mark.protocol
 def mcp_url(live_gateway, monkeypatch, tmp_path):
     app = http_app_in(tmp_path, lambda: make_telco(base_url=live_gateway))
     monkeypatch.chdir(tmp_path)  # no repo .env
-    monkeypatch.setenv("HARNESS_SYSTEM_PROMPT_FILE", str(REPO / "prompts/agent.system.md"))
-    monkeypatch.setenv("HARNESS_GUARDRAILS_FILE", str(REPO / "config/guardrails.json"))
+    monkeypatch.setenv("HARNESS_SYSTEM_PROMPT_FILE", str(REPO / "lab/prompts/agent.system.md"))
+    monkeypatch.setenv("HARNESS_GUARDRAILS_FILE", str(REPO / "lab/config/guardrails.json"))
     monkeypatch.setenv("HARNESS_TRACE_DIR", str(tmp_path / "traces"))
     monkeypatch.setenv("HARNESS_TRANSPORT", "http")
     monkeypatch.setenv("HARNESS_BEARER_TOKEN", jwt_token())

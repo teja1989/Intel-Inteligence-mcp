@@ -1,196 +1,180 @@
-# Telco MCP Lab
+# Telco MCP Server
 
-A **local learning sandbox** for the [Model Context Protocol](https://modelcontextprotocol.io)
-(spec revision **2026-07-28**, the stateless one), built with the official
-Python SDK (`mcp` **2.2.0**). It mirrors the planned production design
-(Spring Boot 4.1 + Spring AI 2.0, stateless MCP, Cloud Foundry) so every
-concept transfers to Java.
+A stateless [Model Context Protocol](https://modelcontextprotocol.io) server (spec
+**2026-07-28**, Python SDK `mcp` **2.2.0**) that exposes a mobile operator's account,
+line and order APIs as **tools** for internal AI agents. It started as a learning lab
+and is being hardened for production; it mirrors the planned Spring AI design, so each
+concept maps to Java.
 
-> ⚠️ Learning project, not production. All data is synthetic (see
-> [docs/02-mock-backend.md](docs/02-mock-backend.md#synthetic-data)). No secrets
-> in code; configuration lives in `.env` (gitignored).
+> All data is synthetic. No secrets in code: configuration comes from environment
+> variables (locally `.env`, gitignored). **Contributors and coding agents: read
+> [AGENTS.md](AGENTS.md) first.**
 
-## Status
+## What ships and what doesn't
 
-| Phase | Content | State |
-|---|---|---|
-| 1 | Concepts primer, project skeleton, mock gateway + telecom APIs + tests | ✅ done |
-| 2 | First tool over **stdio**, MCP Inspector, JSON-RPC walkthrough | ✅ done |
-| 3 | Stateless **Streamable HTTP**, read tools, client + scopes, strict IDs, masking, resilience, audit | ✅ done (identity simplified 2026-09-27) |
-| 4 | Order flow (preview → answers → submit), separate scopes, idempotency via MCP | ⏸ parked: awaiting real preview/submit API contracts ([docs/91](docs/91-backlog-orders-preview-submit.md)) |
-| 5 | Azure OpenAI harness with step-by-step tool-call trace | ✅ done (offline-tested; run `make harness-check` on your machine) |
-| 5b | Prompt layers (routing / server instructions / agent prompt) and host guardrails | ✅ done ([docs/05b](docs/05b-prompts-and-guardrails.md)) |
-| E1 | External-agent readiness: boundary + architecture test, generated tool catalog, integrator guide | ✅ done ([docs/06](docs/06-external-agents.md)) |
-| E2 (internal) | JWT validation at the server (token service JWKS, iss/aud/exp/lifetime), client registry, `/healthz` | ✅ done, dev token-service stand-in ([docs/07](docs/07-internal-jwt.md)); real token-service values to confirm |
-| E2 (external) | Signed customer handle (B2), step-up / scope challenges | parked (agent platform set aside) |
-| Models | Harness adapters for Claude, Gemini and Azure OpenAI; `make model-check` (one real model end to end). Manual testing through Claude Code / Antigravity as MCP hosts | ✅ done ([docs/05](docs/05-llm-harness.md) §Providers) |
-| Access | Production guard (G2), environment-tagged registry, developer connector (headersHelper + stdio bridge) for the shared lower-env client | ✅ done ([docs/08](docs/08-access-and-environments.md), [docs/09](docs/09-connect-dev-tools.md)); Azure AD sign-in for developers planned |
-| E3 | Rate limiting per client, distinct-account tripwires, catalog versioning in `_meta` | planned |
-| 6 | Evaluation suite + description-rewording experiment | |
-| 7 | Wrap-up: Spring AI mapping, pitfalls, production checklist | |
-
-## Quick start
-
-Prerequisites (macOS, Linux, or Windows via WSL):
-
-* [uv](https://docs.astral.sh/uv/getting-started/installation/), the Python package manager:
-  `brew install uv`, or `curl -LsSf https://astral.sh/uv/install.sh | sh` (then open a new
-  terminal), or behind a proxy that blocks astral.sh: `python3 -m pip install --user uv`.
-* make, bash, curl (preinstalled on macOS/Linux).
-* **Node ≥ 22.19**, only for MCP Inspector.
-* uv downloads Python 3.12 if you don't have it (from GitHub). If your proxy blocks that:
-  `brew install python@3.12`, then `UV_PYTHON_DOWNLOADS=never make setup`.
-
-Run `make doctor` first: it checks all of the above and prints the fix for anything missing.
-
-```bash
-make doctor    # check prerequisites (uv, Python 3.12, node, ports, proxy)
-make setup     # install pinned deps (uv.lock) into .venv, Python 3.12
-make env       # create .env with a random gateway token (never overwrites)
-make check     # lint + full test suite; should be green before anything else
-
-# terminal 1
-make mocks     # mock gateway on http://127.0.0.1:8081  (OpenAPI UI: /docs)
-# terminal 2
-make smoke     # real-HTTP walkthrough: bearer auth, reads, draft, idempotent submit
-make demo-stdio          # MCP client ↔ server over stdio, full JSON-RPC wire printed
-make inspector           # MCP Inspector web UI against our server
-
-# HTTP: always JWT. Locally the token service is a stand-in (real values: docs/07 §5-6)
-make dev-keys            # once: dev RSA key + JWKS in .data/dev-keys
-make mcp-http            # terminal 2 instead: stateless HTTP on :8090, trusting the dev keys
-make demo-http           # refused tokens, clients, scopes, masking, strict IDs
-make token CLIENT=care-agent-internal SCOPES="read pii:read"   # token for Inspector/curl
-make demo-injection      # the injected note, before vs after shaping
-make mcp-cluster         # 2 replicas + round-robin LB on :8099 (LEGACY=1 breaks legacy clients)
-
-# Harness: a real model as the host (a key in .env: CHAT_CLAUDE_*, CHAT_GEMINI_* or AZURE_OPENAI_*)
-make env-update                       # existing .env? add new settings, list retired ones
-make harness-check                    # MCP ✅ (stdio: starts the server itself), model ✅
-make ask Q="what plans are on ACC-1001?"   # full step trace (TRANSPORT=http for make mcp-http)
-make chat                             # multi-turn
-make model-check LLM=gemini           # one real model end to end: reply, tool call, follow-up, tool error
+```
+server/        telco-mcp-server  (package telco_mcp)       ← SHIPS as the Docker image
+  src/telco_mcp/     __main__ · http_app · server · settings · state · catalog
+                     security/  jwt_verifier · clients (registry) · scoped_server · audit · environment (G2)
+                     tools/     account · lines · orders · common (shared args)
+                     clients/   gateway (URLs, token) · telco (typed client) · resilience (retry, breaker)
+                     shaping/   pii (masking) · free_text (injection)
+                     errors/    tool_errors (safe messages)
+                     observability/  logs (ECS JSON) · access · fields · telemetry (OpenTelemetry)
+                     ids · gateway_routes   (shared contract: ID formats, API paths)
+  config/clients.json  client registry sample (production mounts its own)
+lab/           telco-mcp-lab     (package telco_mcp_lab)   ← NEVER ships: local testing rig
+  src/telco_mcp_lab/ mock_apis (fake gateway + APIs) · harness (LLM test client: Claude /
+                     Gemini / Azure) · devtools (dev token service, round-robin LB) ·
+                     connect (developer token helper / stdio bridge)
+  scripts/ · prompts/ · config/guardrails.json
+tests/         server + lab tests (pytest)          docs/   design notes, one per topic
+Dockerfile     two-stage, server only, non-root     AGENTS.md · .agent/skills/   rules + playbooks
 ```
 
-Run `make` for all targets. Current list:
+The server has **no LLM**: agents bring their own model and call our tools. The lab
+stands in for everything around the server (gateway, APIs, token service, an agent).
+`tests/test_architecture.py` fails if the server imports lab code, an LLM SDK or an
+undeclared dependency, and the image is checked to contain none of them (docs/10 §5).
+
+## How a request flows
+
+```mermaid
+sequenceDiagram
+    participant A as Agent (Claude Code, an app, …)
+    participant G as API gateway
+    participant S as MCP server (any replica)
+    participant B as Domain APIs (via gateway)
+    A->>G: POST /mcp  Authorization: Bearer JWT · traceparent
+    G->>S: forwarded (round-robin, no stickiness)
+    Note over S: ① OTel span from traceparent · access log<br/>② Host/Origin check (DNS rebinding) → 403<br/>③ JWT: signature (JWKS), iss, aud, exp, lifetime → 401<br/>④ client registry → client_id + scopes<br/>⑤ tools/list filtered by scope · tools/call enforced<br/>⑥ arguments validated (strict ID patterns)
+    S->>B: GET /boaccount/API/account/ACC-1001  (server's OWN token, traceparent)
+    B-->>S: JSON
+    Note over S: ⑦ rows filtered to the requested ID · PII masked unless pii:read<br/>⑧ free text withheld if it looks like instructions<br/>⑨ audit line (client + IDs, no payloads)
+    S-->>A: structured result, or an actionable tool error
+```
+
+| Step | Code |
+|---|---|
+| Entry point, logging/telemetry setup | `server/src/telco_mcp/__main__.py`, `http_app.py` |
+| ③④ auth and identity | `security/jwt_verifier.py`, `security/clients.py` |
+| ⑤⑨ scope filter, audit, tool span | `security/scoped_server.py`, `security/audit.py` |
+| ⑥⑦⑧ the tools | `tools/*.py`, `shaping/*.py`, `errors/tool_errors.py` |
+| downstream calls | `clients/telco.py`, `clients/resilience.py` |
+
+Identity is one concept, the **client**. The account ID is a tool argument (the model
+takes it from the user) and there is **no per-customer boundary**: an accepted risk
+with compensating controls ([docs/08 §1.6](docs/08-access-and-environments.md)). Over
+stdio there is no token; the process runs with `MCP_STDIO_SCOPES`.
+
+## Quick start (local)
+
+Prerequisites: [uv](https://docs.astral.sh/uv/getting-started/installation/)
+(`brew install uv`, or `curl -LsSf https://astral.sh/uv/install.sh | sh`, or behind a
+proxy `python3 -m pip install --user uv`), make, bash, curl; Node ≥ 22.19 only for MCP
+Inspector; Docker only for the image. `make doctor` checks all of it.
+
+```bash
+make doctor setup env        # prerequisites, install (uv workspace: server + lab), create .env
+make check                   # lint + full test suite: green before anything else
+make env-update              # existing .env? add new settings, flag retired/moved ones
+
+make mocks                   # terminal 1: mock gateway + APIs on :8081 (OpenAPI UI: /docs)
+```
+
+Then pick how to run the server:
+
+| Mode | Commands | Use it for |
+|---|---|---|
+| **stdio** (no auth, scopes from `MCP_STDIO_SCOPES`) | `make demo-stdio`, `make inspector`, or register in Claude Code (below) | trying tools, MCP hosts on your laptop |
+| **HTTP** (JWT, like production) | `make dev-keys` once, `make mcp-http`, `make demo-http`, `make token` | the production path locally |
+| **Docker image** | `make docker-build docker-run` (port 8093) | exactly what ships |
+| **Real model end to end** | key in `.env` (`CHAT_CLAUDE_API_KEY` / `CHAT_GEMINI_API_KEY` / `AZURE_OPENAI_*`), `make model-check LLM=claude` | checking a model uses the tools correctly |
+
+Register in Claude Code (stdio; run from the repo root):
+
+```bash
+claude mcp add telco-lab -- uv run --directory "$PWD" python -m telco_mcp
+```
+
+Ask with an account ID, e.g. *"summarise account ACC-1001"*. Accounts: `ACC-1001`,
+`ACC-1002`, `ACC-2001`. For the lower-env gateway with the shared client, see docs/09.
+
+## Common targets
 
 | Target | What it does |
 |---|---|
-| `setup` / `env` | Install deps; create `.env` (mode 600, random key) |
-| `mocks` | Start the mock API gateway (all five microservices) |
-| `smoke` | End-to-end check against the running gateway, via the MCP gateway client |
-| `mcp-stdio` | Run the MCP server on stdio |
-| `demo-stdio` / `demo-stdio-legacy` | Python MCP client over stdio (2026-07-28 / legacy handshake) with wire trace |
-| `inspector` / `inspector-cli-list` / `inspector-cli-call` | MCP Inspector 2.8.0, web or headless (`ACCOUNT=`, `ERA=`) |
-| `traces` | List captured JSON-RPC traces (`.data/traces`) |
-| `env-tokens` | Add a missing dev token service secret to an existing `.env` |
-| `catalog` | Regenerate `docs/tool-catalog.md` from the live tool definitions (drift-tested) |
-| `harness-check` / `ask` / `chat` | Harness (Claude / Gemini / Azure): connectivity check; one question; interactive (`LLM=`, `TRANSPORT=`) |
-| `mcp-http` / `mcp-cluster` | Stateless Streamable HTTP server (JWT; dev keys unless `MCP_JWT_*` set); 2 replicas + round-robin LB |
-| `dev-keys` / `token` / `test-jwt` | Dev keys + tokens (`CLIENT=`, `SCOPES=`); JWT tests |
-| `dev-token-service` / `connect-local` / `connect-check` / `test-connect` | Shared lower-env client: local token service, connector config, end-to-end check, tests (docs/09) |
-| `env-update` / `model-check` | Add new `.env.example` settings to your `.env`; real-model end-to-end check (`LLM=gemini\|claude\|azure`) |
-| `demo-http` / `demo-injection` / `inspector-http` | HTTP walkthrough (tokens, clients, scopes); injection before/after; Inspector UI for HTTP |
-| `chaos-slow` / `chaos-fail` / `chaos-off` / `chaos-status` | Inject 5 s latency / 503s into the backend, or turn it off |
-| `test` / `test-fast` / `test-mocks` / `test-client` / `test-harness` / `test-protocol` / `test-security` | Full suite / no slow tests / mock gateway / MCP server / harness (offline) / real-transport protocol tests / security-marked |
-| `lint` / `fmt` / `check` | Ruff (incl. `S` security rules) / auto-fix / lint + tests |
-| `reset-data` / `clean` | Wipe backend SQLite data / caches |
+| `setup` / `env` / `env-update` / `doctor` | install; create `.env`; add new settings; check prerequisites |
+| `check` / `test` / `lint` / `fmt` | lint + tests; tests only; ruff check; ruff fix |
+| `test-security` / `test-protocol` / `test-client` / `test-harness` | subsets by marker/folder |
+| `mocks` / `smoke` / `chaos-slow` / `chaos-fail` / `chaos-off` | mock gateway; smoke test; inject latency/503s |
+| `mcp-stdio` / `demo-stdio` / `inspector` | server over stdio; scripted client with wire trace; MCP Inspector |
+| `mcp-http` / `mcp-cluster` / `demo-http` / `inspector-http` | server over HTTP (JWT); 2 replicas + LB; walkthrough; Inspector |
+| `dev-keys` / `token` / `test-jwt` | dev signing keys; mint a token (`CLIENT=`, `SCOPES=`); JWT tests |
+| `docker-build` / `docker-run` | production image; run it against the mocks |
+| `load-test` | throughput + latency percentiles over HTTP (`N=`, `C=`, `URL=`) |
+| `catalog` | regenerate `docs/tool-catalog.md` (a test enforces it) |
+| `harness-check` / `ask` / `chat` / `model-check` | LLM harness: connectivity; one question; chat; E2E check (`LLM=`, `TRANSPORT=`) |
+| `dev-token-service` / `connect-local` / `connect-check` | lower-env connector rehearsal (docs/09) |
 
-## What ships vs the lab rig
+Run `make` for the full list.
 
-**The MCP server has no LLM.** Agents (hosts), internal or external such as
-an agent platform, bring their own model and call our tools. Everything in
-this repo is either the **server you ship** or a **lab rig** that stands in for
-the world around it. An architecture test (`tests/test_architecture.py`) fails
-if the server ever imports the rig or an LLM SDK.
+## Configuration essentials
 
-| Ships (production candidate) | Lab rig (never deployed) |
+All settings are environment variables; `.env.example` lists every one with a comment.
+
+| Group | Key settings |
 |---|---|
-| `src/telco_mcp_lab/mcp_server/`: the MCP server | `harness/`: **simulated external agent** (Azure OpenAI host) used to test and evaluate the tools |
-| `ids.py`, `gateway_routes.py`: shared contract modules | `mock_apis/`: stands in for the API gateway + domain APIs |
-| `config/clients.json` (client registry) | `devtools/`: round-robin LB (gorouter stand-in), **dev token issuer** (token-service stand-in) |
-| `docs/tool-catalog.md` (generated contract) | `scripts/`: demos, wire tracer, smoke tests |
-| `docs/06-external-agents.md` (integrator guide) | `prompts/`, `config/guardrails.json`: the *agent's* prompt/guardrails (examples of what an agent owns) |
+| Server | `MCP_ENVIRONMENT` (local/dev/test/production), `MCP_HOST`, `MCP_PORT` / `PORT`, `MCP_PUBLIC_URL`, `MCP_ALLOWED_HOSTS`, `MCP_CLIENTS_CONFIG`, `MCP_STDIO_SCOPES` |
+| Auth (HTTP) | `MCP_JWT_ISSUER`, `MCP_JWT_AUDIENCE`, `MCP_JWT_JWKS_URL` (production) or `MCP_JWT_JWKS_FILE` (local) |
+| Gateway | `GATEWAY_BASE_URL`, `GATEWAY_TOKEN`, `GATEWAY_ALLOW_NON_LOCAL`, timeouts, `GATEWAY_SVC_*` paths |
+| Observability | `MCP_LOG_FORMAT` (json in the image), `MCP_LOG_LEVEL`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_TRACES_SAMPLER` |
 
-```mermaid
-flowchart LR
-    subgraph EXT["Agents (hosts): NOT ours to trust"]
-        direction TB
-        X1["External agent platform<br/>(e.g. Sierra)"]
-        X2["Internal agent"]
-        H["harness/ (lab)<br/>simulated external agent<br/>Azure OpenAI"]
-    end
-    EXT -- "Streamable HTTP, stateless<br/>Bearer token (client credentials)" --> GW
-    GW["API gateway<br/>(token validation)"] --> S
-    subgraph S["MCP server: SHIPS"]
-        direction TB
-        SEC["security/<br/>client + scopes · audit"]
-        T["tools/ (catalog = contract)"]
-        SH["shaping/<br/>mask PII · withhold injected text"]
-        CL["clients/<br/>timeouts · retry · breaker"]
-        SEC --> T --> CL
-        T --> SH
-    end
-    CL -- "own service token<br/>(never the agent's)" --> B
-    subgraph B["Domain APIs (lab: mock_apis/)"]
-        A1[boaccount] --- A2[bosubscription] --- A3[boservice]
-        A4[boorder] --- A5[boordersubmission]
-    end
-```
+**Production** (`MCP_ENVIRONMENT=production`) refuses to start with any lab setting:
+stdio, text logs, dev JWKS file, local/reserved URLs, `--legacy-sessions`, raw free
+text, or registry entries not tagged for production (guard G2, docs/08). Not yet
+production-ready: gateway OAuth token (static today), rate limiting, metrics,
+backpressure, readiness probe, deployment manifests. See [docs/TODO.md](docs/TODO.md).
 
-Two trust boundaries, deliberately different:
+## Working on the code
 
-* **Agent → MCP server:** untrusted. Token → client + scopes; the server
-  enforces scopes, ID formats and PII masking itself, and never relies on the
-  agent's prompt or confirmation UI. The account ID is a tool argument, like the
-  domain APIs take it in the URL: **there is no per-customer boundary**, so any
-  client with `read` can read any account (accepted risk, docs/08 §1.6).
-* **MCP server → gateway:** the MCP server's **own** service token. The
-  agent's token is never passed through (the MCP spec forbids it).
+* Rules: [AGENTS.md](AGENTS.md) (security, architecture, logging, testing, docs).
+* Playbooks: [`coding-style`](.agent/skills/coding-style/SKILL.md),
+  [`new-mcp-tool`](.agent/skills/new-mcp-tool/SKILL.md),
+  [`pr-review`](.agent/skills/pr-review/SKILL.md). Claude Code loads them via
+  `CLAUDE.md` and `.claude/skills` (a link to `.agent/skills`).
+* Done means: tests that fail without the change, `make check` green, docs updated
+  (AGENTS.md §7), `make catalog` for tool changes.
 
-## Repository layout
+## Documentation
 
-```
-src/telco_mcp_lab/
-  gateway_routes.py     shared gateway path layout: /{microservice}/API/... (placeholders)
-  mock_apis/            Phase 1: FastAPI mock gateway + telecom microservices
-    app.py              app factory, bearer auth, error handlers, admin/chaos endpoints
-    routers/            accounts, subscriptions, services, orders, submissions
-    store.py            SQLite drafts/orders/idempotency ("exactly once" lives here)
-    data.py             synthetic accounts, lines, and the prompt-injection note
-    problems.py         RFC 9457 Problem Details
-    chaos.py            latency/failure injection middleware
-  ids.py                ID formats: the shared contract between mocks and tool schemas
-  mcp_server/           the MCP server (layers: security/ tools/ clients/ shaping/ errors/)
-    __main__.py         entry point: --transport stdio|http, logs → stderr
-    server.py           composition root: server, instructions, lifespan, tool registration
-    http_app.py         stateless Streamable HTTP app (auth, DNS-rebinding protection)
-    settings.py         MCP_* settings
-    state.py            process-wide AppState (pooled HTTP client only; no request state)
-    security/           jwt_verifier (JWKS) · clients (ClientContext, registry) · scoped_server
-                        (tool filtering/enforcement/audit) · audit · environment (G2 guard)
-    clients/            gateway (URLs, TokenProvider) · telco (typed client) · resilience
-    shaping/            pii (masking) · free_text (injection neutralising)
-    errors/tool_errors.py  failures → actionable, non-leaky tool errors
-    tools/              account · lines (subscriptions, service details) · orders
-  harness/              Phase 5: the MCP HOST: settings · llm (Claude/Gemini/Azure) · bridge
-                        (MCP ⇄ function calling) · agent (loop + guards) · prompts ·
-                        guardrails · trace · CLI
-  devtools/round_robin_lb.py  gorouter stand-in for the scaling demo
-  devtools/token_issuer.py    DEV-ONLY token-service stand-in: RSA key, JWKS, mint tokens
-  devtools/token_service.py   DEV-ONLY OAuth client-credentials endpoint + JWKS (:8095)
-  connect/                    developer-side connector: headers (Claude Code) / bridge (stdio) / check
-config/clients.json     HTTP: registered client_ids, allowed scopes, environment tags (non-secret)
-config/guardrails.json  host guardrails: input redact/block/warn, grounded-identifier output rule
-prompts/agent.system.md the host's (agent's) system prompt: versioned, eval-gated
-tests/                  pytest; markers: security, slow
-scripts/smoke_mocks.py  real-HTTP smoke test of the mock gateway
-scripts/stdio_trace.py  transparent stdio proxy that logs every JSON-RPC message
-scripts/stdio_demo.py   scripted MCP client over stdio (modern or legacy era)
-scripts/http_demo.py    HTTP walkthrough: refused tokens, clients, scopes, masking, IDs
-scripts/injection_demo.py  prompt-injection note: backend → model, before/after
-docs/                   01-concepts.md (primer), 02-mock-backend.md, … one per phase
-```
+| Doc | Read it for |
+|---|---|
+| [01-concepts](docs/01-concepts.md) | MCP primer: host/client/server, transports, what 2026-07-28 changed, security model |
+| [02-mock-backend](docs/02-mock-backend.md) | the mock gateway/APIs and synthetic data |
+| [03-stdio-first-tool](docs/03-stdio-first-tool.md) | tool anatomy, the JSON-RPC wire, MCP Inspector |
+| [04-http-security-scaling](docs/04-http-security-scaling.md) | stateless HTTP and scaling, identity + scopes, the no-boundary decision, masking, injection, resilience, audit |
+| [05-llm-harness](docs/05-llm-harness.md), [05b](docs/05b-prompts-and-guardrails.md) | the LLM test harness, providers, prompts and guardrails |
+| [06-external-agents](docs/06-external-agents.md) | integrator guide for agent teams |
+| [07-internal-jwt](docs/07-internal-jwt.md) | JWT validation, client registry, values to confirm with the token-service team |
+| [08-access-and-environments](docs/08-access-and-environments.md) | who connects how per environment, guardrails G1–G11, accepted risks |
+| [09-connect-dev-tools](docs/09-connect-dev-tools.md) | connecting VS Code / Claude Code to a lower env |
+| [10-observability](docs/10-observability.md) | logs (ECS/ELK), traces (OpenTelemetry), the Docker image, measured cost |
+| [tool-catalog](docs/tool-catalog.md) | generated tool contract + hash |
+| [TODO](docs/TODO.md), [90](docs/90-backlog-external-validation.md), [91](docs/91-backlog-orders-preview-submit.md), [92](docs/92-industry-gap-analysis.md) | parked work, backlog designs, gap analysis |
+
+## Status
+
+| Area | State |
+|---|---|
+| Read tools over stdio + stateless HTTP, both protocol eras, horizontal scaling | ✅ |
+| JWT auth, client registry + scopes, strict IDs, PII masking, injection shaping, audit | ✅ (real token-service values to confirm, docs/07 §6) |
+| Production startup guard, environment-tagged registry | ✅ |
+| Logging (ECS JSON → ELK), tracing (OpenTelemetry, W3C traceparent), Docker image | ✅ 2026-09-28 (docs/10) |
+| Repo split: shipped server vs lab | ✅ 2026-09-28 |
+| LLM harness (Claude, Gemini, Azure) + `model-check`; developer connector | ✅ (lab) |
+| Metrics, backpressure, readiness, rate limits (Redis), gateway OAuth, manifests | planned (docs/TODO.md) |
+| Order flow (preview → submit) | ⏸ awaiting API contracts (docs/91) |
 
 ## Concept → Python → Java/Spring AI
 
@@ -213,9 +197,9 @@ Grows each phase. Full version and verification notes are in
 | Host: MCP tools → LLM functions | `harness/bridge.py` | `SyncMcpToolCallbackProvider` → `ToolCallback` |
 | Host: tool-calling loop | `harness/agent.py` (by hand, traced) | `ChatClient` internal tool execution / `ToolCallingManager` |
 | LLM client | `openai.AsyncOpenAI(base_url=…/openai/v1/)` | `AzureOpenAiChatModel` / `OpenAiChatModel` |
-| Agent system prompt | `prompts/agent.system.md` | `ChatClient.defaultSystem(Resource)` |
+| Agent system prompt | `lab/prompts/agent.system.md` | `ChatClient.defaultSystem(Resource)` |
 | Server instructions | `MCPServer(instructions=…)` | `spring.ai.mcp.server.instructions` |
-| Host guardrails | `harness/guardrails.py` + `config/guardrails.json` | custom `CallAdvisor`s (`SafeGuardAdvisor` = word blocklist only) |
+| Host guardrails | `harness/guardrails.py` + `lab/config/guardrails.json` | custom `CallAdvisor`s (`SafeGuardAdvisor` = word blocklist only) |
 | Stateless HTTP | 2026-07-28 automatic; `stateless_http=True` for legacy clients | `spring.ai.mcp.server.protocol=STATELESS` (**2025-era protocol; see primer §6**) |
 | Downstream error format | RFC 9457 Problem Details | `ProblemDetail` / `@RestControllerAdvice` |
 | Config & secrets | `pydantic-settings` + `.env` | `@ConfigurationProperties` + env / CF user-provided service |
@@ -249,51 +233,6 @@ Grows each phase. Full version and verification notes are in
    automatically. Good for Azure, but on a corporate laptop it would also capture
    *localhost* MCP/gateway calls. Local clients now ignore proxy env vars (tested).
 
-## Documentation
-
-* [docs/01-concepts.md](docs/01-concepts.md): host/client/server, primitives,
-  JSON-RPC, transports, what 2026-07-28 changed, why stateless matters on CF,
-  security model.
-* [docs/03-stdio-first-tool.md](docs/03-stdio-first-tool.md): tool anatomy,
-  stdio rules, captured JSON-RPC wire walkthrough (modern vs legacy), error
-  channels, MCP Inspector how-to, known gaps.
-* [docs/04-http-security-scaling.md](docs/04-http-security-scaling.md):
-  stateless HTTP and the 2-replica experiment, client + scopes, the no-customer-
-  boundary decision, security matrix, PII masking, injection before/after,
-  resilience, audit.
-* [docs/05-llm-harness.md](docs/05-llm-harness.md): the host loop, real
-  step trace, host guards and y/N confirmation, data boundary to Azure, v1
-  endpoint + corporate proxy config, `harness-check` diagnostics.
-* [docs/06-external-agents.md](docs/06-external-agents.md): **integrator
-  guide** for agent teams (internal and external): connecting, auth, customer
-  context, errors, data handling, responsibilities, open decisions.
-* [docs/08-access-and-environments.md](docs/08-access-and-environments.md): **who may
-  connect how** in local / lower env / production: SSO for developers, the shared lower-env
-  client, production client credentials, guardrails G1–G11, secret handling, incidents.
-* [docs/09-connect-dev-tools.md](docs/09-connect-dev-tools.md): **connect VS Code / Claude
-  Code / Inspector** to a lower env with the shared client: keychain, `headersHelper`, stdio
-  bridge, local rehearsal, troubleshooting.
-* [docs/TODO.md](docs/TODO.md): **parked work** (rate limits + Redis, abuse tripwires,
-  customer verification, token helper for dev tools, onboarding, harness Claude adapter).
-* [docs/07-internal-jwt.md](docs/07-internal-jwt.md): **running internally**: JWT
-  validation, client registry, run steps, the values to
-  confirm with the token-service team, and what changes before real APIs.
-* [docs/tool-catalog.md](docs/tool-catalog.md): **generated** tool contract with catalog hash.
-* [docs/92-industry-gap-analysis.md](docs/92-industry-gap-analysis.md): scorecard
-  against the 2026-07-28 spec + security best practices.
-* [docs/05b-prompts-and-guardrails.md](docs/05b-prompts-and-guardrails.md):
-  where routing (tool descriptions), server instructions, the agent prompt and
-  guardrails each live; who owns them; what's enforced where; Spring AI mapping.
-* [docs/91-backlog-orders-preview-submit.md](docs/91-backlog-orders-preview-submit.md):
-  **parked** Phase 4 design: separate `order:preview` / `order:submit` scopes,
-  multi-step preview via server-minted handle (recommended) vs MRTR elicitation.
-* [docs/90-backlog-external-validation.md](docs/90-backlog-external-validation.md):
-  **parked** plan for validating against the official conformance suite,
-  reference servers and other implementations (findings as of 2026-09-25).
-* [docs/02-mock-backend.md](docs/02-mock-backend.md): gateway conventions and
-  auth, APIs, synthetic data, Problem Details, draft → submit, idempotency
-  guarantees, chaos switch.
-
 ## Decisions log
 
 | Decision | Choice |
@@ -307,6 +246,9 @@ Grows each phase. Full version and verification notes are in
 | Idempotency key | Model-supplied argument, enforced by backend; risk documented and tested |
 | Destructive calls | Host asks for y/N confirmation before `submit_order` |
 | Agent → MCP auth (E2) | JWT from the internal token service (client credentials, `scope` claim, `aud` = MCP server), **validated at the MCP server** via JWKS; gateway scope headers ignored |
-| Agent clients | Registry (`config/clients.json`); effective scopes = token ∩ allowed; unregistered = nothing |
+| Agent clients | Registry (`server/config/clients.json`); effective scopes = token ∩ allowed; unregistered = nothing |
 | Customer context (2026-09-27) | **None.** Account ID is a tool argument → API URL; any `read` client can read any account. Accepted risk (docs/08 §1.6), compensated by scopes, masking, strict IDs, per-ID audit |
 | Identity | One concept: the **client** (JWT `client_id` + registry scopes); stdio runs with `MCP_STDIO_SCOPES` |
+| Repo layout (2026-09-28) | uv workspace: `server/` (ships, minimal deps) + `lab/` (never ships); boundary enforced by `tests/test_architecture.py` |
+| Deployment | One Docker image (server only, non-root) for Cloud Foundry now and EKS later; config via env vars |
+| Logging (2026-09-28) | ECS JSON on stdout → ELK, plus OTLP to the collector when configured; W3C `traceparent` correlation; no baggage |

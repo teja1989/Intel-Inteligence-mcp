@@ -6,9 +6,9 @@ import logging
 import pytest
 from mcp import Client
 
-from telco_mcp_lab.mcp_server.security.audit import AUDIT_LOGGER
-from telco_mcp_lab.mcp_server.shaping.free_text import looks_like_injection, shape_free_text
-from telco_mcp_lab.mcp_server.shaping.pii import mask_msisdn, mask_name
+from telco_mcp.security.audit import AUDIT_LOGGER
+from telco_mcp.shaping.free_text import looks_like_injection, shape_free_text
+from telco_mcp.shaping.pii import mask_msisdn, mask_name
 from telco_mcp_lab.mock_apis.data import INJECTED_NOTE
 from tests.conftest import server_with
 

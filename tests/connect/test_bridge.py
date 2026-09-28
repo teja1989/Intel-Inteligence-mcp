@@ -12,12 +12,12 @@ import pytest
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 
+from telco_mcp.http_app import build_http_app
+from telco_mcp.settings import JwtSettings, McpServerSettings
 from telco_mcp_lab.connect.bridge import Bridge
 from telco_mcp_lab.connect.token import ClientCredentials
 from telco_mcp_lab.devtools.token_issuer import DEV_ISSUER, jwks_for
 from telco_mcp_lab.devtools.token_service import create_app as create_token_service
-from telco_mcp_lab.mcp_server.http_app import build_http_app
-from telco_mcp_lab.mcp_server.settings import JwtSettings, McpServerSettings
 from tests.conftest import LiveServer, make_telco
 from tests.connect.test_token_and_service import KEY, SECRET, settings
 

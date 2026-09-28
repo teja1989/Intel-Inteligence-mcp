@@ -19,7 +19,7 @@ Authorization: Bearer <token>
 * **Microservice names are placeholders** (`boaccount`, `bosubscription`,
   `boservice`, `boorder`, `boordersubmission`), set via `GATEWAY_SVC_*` in `.env`.
   Both the mock (to mount routes) and the MCP client (to build URLs) read the same
-  variables from `src/telco_mcp_lab/gateway_routes.py`, and a test calls the
+  variables from `server/src/telco_mcp/gateway_routes.py`, and a test calls the
   mock *through* the client to prove they agree.
 * **Trailing slash tolerated**: `/subscription/` and `/subscription` are the
   same route, like your gateway example.
@@ -31,7 +31,7 @@ Authorization: Bearer <token>
   * no or malformed header: `401 UNAUTHENTICATED` + `WWW-Authenticate: Bearer realm="mock-gateway"`
   * wrong token: `401 INVALID_TOKEN` + `WWW-Authenticate: Bearer realm="mock-gateway", error="invalid_token"`
   * the presented token is never echoed back.
-* **The token seam** (`mcp_server/clients/gateway.py`): code depends on a
+* **The token seam** (`server/src/telco_mcp/clients/gateway.py`): code depends on a
   `TokenProvider`. Today that's `StaticTokenProvider` (from `.env`). An OAuth2
   client-credentials provider (fetch, cache, refresh) can replace it later
   without touching tools. *Java:* `OAuth2AuthorizedClientManager` +

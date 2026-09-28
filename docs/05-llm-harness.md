@@ -75,13 +75,13 @@ path: the server's schema error teaches the model the ID format.
 With real Azure you'll also see per-step latency and token usage. Every run is
 also written to `.data/harness/run-*.jsonl`, which Phase 6's evaluation runner reads.
 
-## 2. Code map (`src/telco_mcp_lab/harness/`)
+## 2. Code map (`lab/src/telco_mcp_lab/harness/`)
 
 | File | Role | Spring AI equivalent |
 |---|---|---|
 | `settings.py` | `AZURE_OPENAI_*`, `HARNESS_*` from `.env` | `spring.ai.azure.openai.*` properties |
-| `prompts.py` + `prompts/agent.system.md` | host system prompt (file) + server instructions, composed (docs/05b) | `defaultSystem(Resource)` |
-| `guardrails.py` + `config/guardrails.json` | input redact/block/warn, grounded-identifier output rule (docs/05b) | custom `CallAdvisor`s |
+| `prompts.py` + `lab/prompts/agent.system.md` | host system prompt (file) + server instructions, composed (docs/05b) | `defaultSystem(Resource)` |
+| `guardrails.py` + `lab/config/guardrails.json` | input redact/block/warn, grounded-identifier output rule (docs/05b) | custom `CallAdvisor`s |
 | `llm.py` | `ChatModel` interface + `AzureChatModel` (Chat Completions) | `AzureOpenAiChatModel` / `OpenAiChatModel` |
 | `bridge.py` | MCP tools → OpenAI functions; results → `role: tool` | `SyncMcpToolCallbackProvider` → `ToolCallback`s |
 | `agent.py` | The loop + host guards + confirmation hook | `ChatClient` with internal tool execution (`ToolCallingManager`) |

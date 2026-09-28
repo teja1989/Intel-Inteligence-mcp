@@ -1,6 +1,6 @@
 """The published tool catalog must match the live definitions exactly."""
 
-from telco_mcp_lab.mcp_server.catalog import (
+from telco_mcp.catalog import (
     CATALOG_DOC,
     build_catalog_markdown,
     catalog_definitions,

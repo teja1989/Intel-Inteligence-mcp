@@ -25,11 +25,11 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from pydantic import ValidationError
 
+from telco_mcp.security.audit import AUDIT_LOGGER
+from telco_mcp.security.clients import ClientRegistry
+from telco_mcp.security.jwt_verifier import JwksCache, JwtTokenVerifier
+from telco_mcp.settings import JwtSettings
 from telco_mcp_lab.devtools.token_issuer import generate_key, jwks_for, mint
-from telco_mcp_lab.mcp_server.security.audit import AUDIT_LOGGER
-from telco_mcp_lab.mcp_server.security.clients import ClientRegistry
-from telco_mcp_lab.mcp_server.security.jwt_verifier import JwksCache, JwtTokenVerifier
-from telco_mcp_lab.mcp_server.settings import JwtSettings
 from tests.conftest import (
     JWT_AUD,
     JWT_ISS,
@@ -318,7 +318,7 @@ class TestRegistry:
         assert c is not None and c.scopes == {"read"}
 
     def test_repo_clients_config_loads(self):
-        r = ClientRegistry.load(Path(__file__).parents[2] / "config" / "clients.json")
+        r = ClientRegistry.load(Path(__file__).parents[2] / "server" / "config" / "clients.json")
         assert "lowerenv-shared" in r.allowed
 
 

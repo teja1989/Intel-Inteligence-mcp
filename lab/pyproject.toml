@@ -1,0 +1,23 @@
+[project]
+name = "telco-mcp-lab"
+version = "0.4.0"
+description = "Local testing rig for telco-mcp-server: mock APIs, LLM harness, dev token service, developer connector. Never shipped."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "telco-mcp-server",
+    "fastapi==0.141.1",       # mock_apis
+    "python-dotenv==1.2.3",   # scripts / harness read .env
+    "openai==3.19.2",         # harness: Azure OpenAI
+    "anthropic==1.8.0",       # harness: Claude
+    "google-genai==2.25.0",   # harness: Gemini
+]
+
+[tool.uv.sources]
+telco-mcp-server = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.8.17,<0.9.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "telco_mcp_lab"

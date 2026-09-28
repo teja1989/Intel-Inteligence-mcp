@@ -5,6 +5,30 @@
 > only for now**; external agents parked. 2026-09-27: identity simplified to client +
 > scopes; the account ID is a tool argument; **no customer boundary** (docs/08 §1.6).
 
+## Production readiness (target: 5k tool calls/min, CF now, EKS later; docs/10)
+
+- [x] **Repo split** (2026-09-28): `server/` ships, `lab/` never; boundary test + image check.
+- [x] **Logging** (2026-09-28): ECS JSON → ELK, access/audit/downstream/breaker/retry
+  events, W3C `traceparent` correlation, OTLP export, Docker image (docs/10).
+- [ ] **Metrics:** request rate / errors / latency per tool and per downstream API,
+  breaker state, 401 count (OTLP metrics or Prometheus) + Kibana/Grafana dashboards,
+  alerts on SLOs. Pick with the platform team (the collector is ready).
+- [ ] **Backpressure:** cap in-flight requests per instance (fast 503 instead of
+  queueing; measured: latency climbs past ~130–160 req/s per process), per-API
+  concurrency limits, explicit httpx pool sizes.
+- [ ] **Readiness vs liveness:** `/readyz` (JWKS loaded, gateway reachable) separate from
+  `/healthz`.
+- [ ] **Gateway token via OAuth client credentials** (today static `GATEWAY_TOKEN`;
+  `TokenProvider` seam exists) + secrets from CredHub / Vault / Secrets Manager.
+- [ ] **Deployment manifests:** CF (docker image, instances, health check, env) and
+  Kubernetes (Deployment, probes, resources, HPA, PodDisruptionBudget, ConfigMap for the
+  registry). Capacity: ~4–5 instances for 5k/min with 3× peaks (docs/10 §6).
+- [ ] **CI:** GitHub Actions `make check`, gitleaks, pip-audit, image build + scan (Trivy),
+  SBOM.
+- [ ] Load test against the real lower-env APIs (`make load-test URL=…`; today's numbers
+  are against the mocks).
+- [ ] Decide the log path per index: stdout → ELK and/or OTLP logs (avoid duplicates).
+
 ## Security and abuse protection (E3)
 
 - [ ] **Rate limits at two levels.** Gateway: per client_id (it supports rate limiting +
@@ -14,7 +38,7 @@
 - [ ] **Abuse tripwires plus a kill switch.** Per client: denial ratio (probing),
   **distinct accounts per hour** (scraping: the main compensating control now that
   there's no customer boundary), calls per account. Throttle → suspend → alert.
-  Needs registry **hot reload / suspend list** (today `config/clients.json` loads once
+  Needs registry **hot reload / suspend list** (today `server/config/clients.json` loads once
   at startup, so revoking a client needs a restart).
 - [ ] **Per-client tool allow-list** in the registry (finer than scopes).
 - [ ] **Anti-scraping limits:** pages per call and per client per day; no bulk tools.

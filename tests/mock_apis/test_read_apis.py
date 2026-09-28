@@ -3,7 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from telco_mcp_lab.gateway_routes import GatewayRoutes
+from telco_mcp.gateway_routes import GatewayRoutes
 from telco_mcp_lab.mock_apis.app import create_app
 from telco_mcp_lab.mock_apis.data import INJECTED_NOTE
 from tests.conftest import AUTH, TEST_TOKEN

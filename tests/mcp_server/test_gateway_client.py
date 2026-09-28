@@ -5,13 +5,13 @@ import pytest
 import respx
 from pydantic import SecretStr, ValidationError
 
-from telco_mcp_lab.gateway_routes import DomainApi, GatewayRoutes
-from telco_mcp_lab.mcp_server.clients.gateway import (
+from telco_mcp.clients.gateway import (
     GatewayBearerAuth,
     GatewayClientSettings,
     GatewayUrls,
     StaticTokenProvider,
 )
+from telco_mcp.gateway_routes import DomainApi, GatewayRoutes
 from tests.conftest import TEST_TOKEN
 
 TOKEN = SecretStr("client-side-token-0123456789")
