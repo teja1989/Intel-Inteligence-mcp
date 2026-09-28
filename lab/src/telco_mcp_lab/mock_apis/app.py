@@ -1,14 +1,16 @@
 """FastAPI application that stands in for the API gateway + telecom backends.
 
 It mimics the gateway's routing: every domain API lives under
-`/{microservice}/API/...` (see `gateway_routes.py`), e.g.
+`/{microservice}/API/...`, e.g.
 
     GET /bosubscription/API/subscription/SUB-1001-01
     Authorization: Bearer <GATEWAY_TOKEN>
 
 One process hosts all five APIs, so a single `make mocks` starts everything.
-The MCP server addresses them as five separate microservices, as it will in
-production.
+The paths are fixed (MOCK_PREFIXES): they ARE the defaults of the server's endpoint
+catalogue (`telco_mcp/endpoints.py`), and tests/mock_apis/test_endpoint_contract.py
+proves every default endpoint resolves here. Real environments change the server's
+endpoints with GATEWAY_ENDPOINT_*; the mock never needs to.
 
 Run:  uv run python -m telco_mcp_lab.mock_apis      (or: make mocks)
 Docs: http://127.0.0.1:8081/docs                     (OpenAPI UI)
@@ -19,7 +21,6 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from telco_mcp.gateway_routes import DomainApi, GatewayRoutes
 from telco_mcp_lab.mock_apis.chaos import ChaosConfig, ChaosMiddleware, TrailingSlashMiddleware
 from telco_mcp_lab.mock_apis.deps import require_gateway_token
 from telco_mcp_lab.mock_apis.problems import (
@@ -32,6 +33,15 @@ from telco_mcp_lab.mock_apis.routers import accounts, orders, services, submissi
 from telco_mcp_lab.mock_apis.settings import MockApiSettings
 from telco_mcp_lab.mock_apis.store import Clock, OrderStore, utc_now
 
+# /{microservice}/API per domain API: the lab's placeholder gateway layout.
+MOCK_PREFIXES = {
+    "account": "/boaccount/API",
+    "subscription": "/bosubscription/API",
+    "service": "/boservice/API",
+    "order": "/boorder/API",
+    "order_submission": "/boordersubmission/API",
+}
+
 
 class ChaosUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -42,11 +52,9 @@ class ChaosUpdate(BaseModel):
 
 def create_app(
     settings: MockApiSettings | None = None,
-    routes: GatewayRoutes | None = None,
     clock: Clock = utc_now,
 ) -> FastAPI:
     settings = settings or MockApiSettings()  # type: ignore[call-arg]  # filled from env
-    routes = routes or GatewayRoutes()
     app = FastAPI(
         title="Telco Mock Gateway",
         description="Synthetic Account/Subscription/Service/Order/Submission APIs. No real data.",
@@ -65,14 +73,14 @@ def create_app(
     app.add_exception_handler(StarletteHTTPException, http_problem_handler)
 
     authed = [Depends(require_gateway_token)]
-    for api, module in (
-        (DomainApi.ACCOUNT, accounts),
-        (DomainApi.SUBSCRIPTION, subscriptions),
-        (DomainApi.SERVICE, services),
-        (DomainApi.ORDER, orders),
-        (DomainApi.ORDER_SUBMISSION, submissions),
+    for name, module in (
+        ("account", accounts),
+        ("subscription", subscriptions),
+        ("service", services),
+        ("order", orders),
+        ("order_submission", submissions),
     ):
-        app.include_router(module.router, prefix=routes.prefix(api), dependencies=authed)
+        app.include_router(module.router, prefix=MOCK_PREFIXES[name], dependencies=authed)
 
     @app.get("/health", tags=["Ops"])
     def health() -> dict:

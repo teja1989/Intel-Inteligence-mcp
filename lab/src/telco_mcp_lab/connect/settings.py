@@ -20,7 +20,9 @@ def is_local(url: str) -> bool:
 
 
 class ConnectSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="TELCO_MCP_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="TELCO_MCP_", extra="ignore", hide_input_in_errors=True
+    )
 
     url: str  # the MCP endpoint, e.g. https://<lower-env-gateway>/<path>/mcp
     token_url: str  # the lower-env token service's token endpoint

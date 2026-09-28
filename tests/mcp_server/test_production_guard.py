@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from telco_mcp.endpoints import OPERATIONS, GatewayEndpoints
 from telco_mcp.http_app import build_http_app
 from telco_mcp.security.clients import ClientRegistry
 from telco_mcp.security.environment import (
@@ -22,6 +23,10 @@ from tests.conftest import make_telco
 pytestmark = pytest.mark.security
 
 REPO = Path(__file__).parents[2]
+# Production must set every endpoint explicitly (same values as the defaults is fine).
+ALL_ENDPOINTS_SET = GatewayEndpoints(
+    _env_file=None, **{name: op.default for name, op in OPERATIONS.items()}
+)
 PROD = ProductionFacts(
     transport="http",
     public_url="https://mcp.corp-telco.com/mcp",
@@ -55,6 +60,7 @@ class TestRules:
             ({"jwt_jwks_url": None}, "MCP_JWT_JWKS_URL must be set"),
             ({"jwt_jwks_file": Path("x.json")}, "MCP_JWT_JWKS_FILE"),
             ({"registry_problems": ("client 'x' is not tagged",)}, "not tagged"),
+            ({"gateway_endpoints_defaulted": ("get_account",)}, "GATEWAY_ENDPOINT_GET_ACCOUNT"),
         ],
     )
     def test_each_violation_is_reported(self, changes, expected):
@@ -116,7 +122,7 @@ class TestRegistryTags:
 
 # --------------------------------------------------------------- wired into the entry points
 class TestWiring:
-    def _app(self, tmp_path, clients: dict, **settings):
+    def _app(self, tmp_path, clients: dict, endpoints=None, **settings):
         jwks = tmp_path / "jwks.json"
         jwks.write_text('{"keys": []}')
         s = McpServerSettings(
@@ -132,10 +138,18 @@ class TestWiring:
         js_kw = {"jwks_url": PROD.jwt_jwks_url} if "jwks_file" not in settings else {}
         js = JwtSettings(_env_file=None, issuer=PROD.jwt_issuer, audience=PROD.jwt_audience,
                          **js_kw)  # fmt: skip
-        return build_http_app(s, jwt_settings=js, telco_factory=make_telco)
+        return build_http_app(s, jwt_settings=js, telco_factory=make_telco,
+                              gateway_endpoints=endpoints or ALL_ENDPOINTS_SET)  # fmt: skip
 
     def test_http_app_builds_with_production_config(self, tmp_path):
         self._app(tmp_path, {"app": PROD_APP})
+
+    def test_http_app_refuses_mock_default_endpoints_in_production(self, tmp_path):
+        partly = GatewayEndpoints(_env_file=None, get_account="/crm/v1/accounts/{account_id}")
+        with pytest.raises(UnsafeProductionConfig) as exc:
+            self._app(tmp_path, {"app": PROD_APP}, endpoints=partly)
+        msg = str(exc.value)
+        assert "GATEWAY_ENDPOINT_LIST_ORDERS" in msg and "GATEWAY_ENDPOINT_GET_ACCOUNT" not in msg
 
     def test_http_app_refuses_lower_env_client_in_production(self, tmp_path):
         with pytest.raises(UnsafeProductionConfig, match="'shared'"):
@@ -155,7 +169,8 @@ class TestWiring:
         js = JwtSettings(_env_file=None, issuer=PROD.jwt_issuer, audience=PROD.jwt_audience,
                          jwks_file=jwks)  # fmt: skip
         with pytest.raises(UnsafeProductionConfig, match="MCP_JWT_JWKS_FILE"):
-            build_http_app(s, jwt_settings=js, telco_factory=make_telco)
+            build_http_app(s, jwt_settings=js, telco_factory=make_telco,
+                           gateway_endpoints=ALL_ENDPOINTS_SET)  # fmt: skip
 
     def test_stdio_process_exits_in_production(self):
         env = {**os.environ, "MCP_ENVIRONMENT": "production"}

@@ -17,10 +17,11 @@ Authorization: Bearer <token>
 ```
 
 * **Microservice names are placeholders** (`boaccount`, `bosubscription`,
-  `boservice`, `boorder`, `boordersubmission`), set via `GATEWAY_SVC_*` in `.env`.
-  Both the mock (to mount routes) and the MCP client (to build URLs) read the same
-  variables from `server/src/telco_mcp/gateway_routes.py`, and a test calls the
-  mock *through* the client to prove they agree.
+  `boservice`, `boorder`, `boordersubmission`), fixed in the mock (`MOCK_PREFIXES`).
+  They are the **defaults** of the server's endpoint catalogue
+  (`server/src/telco_mcp/endpoints.py`); real environments override the server's
+  paths with `GATEWAY_ENDPOINT_*` (docs/11). A contract test proves every default
+  endpoint is served by the mock.
 * **Trailing slash tolerated**: `/subscription/` and `/subscription` are the
   same route, like your gateway example.
 * **Auth (Option A: service token).** The MCP server sends *its own* token, from

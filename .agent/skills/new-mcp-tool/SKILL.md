@@ -24,17 +24,23 @@ first. Reference implementations: `tools/orders.py` (simple), `tools/lines.py`
   address never.
 * **Which IDs does it take?** Each needs a pattern in `telco_mcp/ids.py`.
 
-## 1. Gateway client (server/src/telco_mcp/clients/telco.py)
+## 1. Endpoint + gateway client
 
-* Add a typed method (`async def get_x(self, x_id: str) -> dict[str, Any]`) that calls
-  `self._get(DomainApi.X, "resource", x_id, params=...)`. `_get` already gives you the
-  URL builder, timeouts, retry (GET only), circuit breaker and logging.
-* New API/service? Add it to `DomainApi` / `GatewayRoutes` (`telco_mcp/gateway_routes.py`)
-  and the `GATEWAY_SVC_*` setting in `.env.example`.
+* Add the operation to `OPERATIONS` **and** a field to `GatewayEndpoints` in
+  `server/src/telco_mcp/endpoints.py`: `DomainApi`, method `GET`, its placeholders, and
+  a default path (the mock's). Never build a gateway URL anywhere else.
+* Add a typed method in `clients/telco.py` that calls
+  `self._get("get_thing", thing_id=thing_id)`. `_get` resolves the template (encoding,
+  query), and adds timeouts, retry (GET only), the circuit breaker, logging and spans.
+* New API family? Add a `DomainApi` member (own breaker).
 * Follow cursors with a bound (`max_pages`), never unbounded.
+* Update docs/11 (table) and `.env.example` (commented `GATEWAY_ENDPOINT_<OP>`). The
+  production guard will require the new variable in production automatically.
 
 ## 2. Mock API (lab/src/telco_mcp_lab/mock_apis)
 
+* Serve the default path on the mock (router under `MOCK_PREFIXES`); the contract
+  test `tests/mock_apis/test_endpoint_contract.py` fails until you do.
 * Add the endpoint to the right router with synthetic data in `data.py` (reserved
   number ranges, `example.invalid`). Return RFC 9457 problems for errors, like the others.
 * Include an adversarial record if the field is free text (see `INJECTED_NOTE`).

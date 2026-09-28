@@ -124,7 +124,11 @@ def redact_url(url: str) -> str:
 def _redact_span(span: Any, request: Any) -> None:
     if span is None or not span.is_recording():
         return
-    safe = redact_url(str(request.url))
+    # Prefer the endpoint's route template (endpoints.py: no IDs, low cardinality);
+    # fall back to a heuristic redaction for calls made without one.
+    route = (getattr(request, "extensions", None) or {}).get("telco.route")
+    parts = urlsplit(str(request.url))
+    safe = f"{parts.scheme}://{parts.netloc}{route}" if route else redact_url(str(request.url))
     for key in ("url.full", "http.url"):
         span.set_attribute(key, safe)
     method = request.method

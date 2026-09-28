@@ -70,6 +70,10 @@ log = logging.getLogger(__name__)  # or a named telco_mcp.* logger
 * Catch narrowly. `except BaseException` only where a resource must be released, then
   re-raise (see the breaker's `abandon()`).
 * Startup/config errors: clear one-line message and exit code 2, not a traceback.
+* Settings classes set `hide_input_in_errors=True` (pydantic-settings feeds EVERY `.env`
+  entry into a model's input, so an error could print unrelated secrets; enforced by
+  `tests/test_settings_secrets.py`). Never log `ValidationError.errors()` without
+  `include_input=False`.
 
 ## Logging
 

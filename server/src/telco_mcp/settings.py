@@ -17,7 +17,11 @@ ASYMMETRIC_ALGORITHMS = frozenset(
 
 class McpServerSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="MCP_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="MCP_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # local | dev | test | production. production refuses lab/lower-env settings at
@@ -71,7 +75,11 @@ class JwtSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_prefix="MCP_JWT_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="MCP_JWT_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     issuer: str = Field(min_length=1)  # required: exact "iss" value

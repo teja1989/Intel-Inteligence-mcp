@@ -20,7 +20,6 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from pydantic import SecretStr
 
 from telco_mcp.clients.resilience import CircuitBreaker, RetryPolicy, with_retry
-from telco_mcp.gateway_routes import GatewayRoutes
 from telco_mcp.observability import fields as log_fields
 from telco_mcp.observability.logs import EcsJsonFormatter, TextFormatter
 from telco_mcp.observability.telemetry import configure_telemetry, redact_url
@@ -197,7 +196,6 @@ def recording_gateway(tmp_path):
     app = create_app(
         MockApiSettings(_env_file=None, gateway_token=SecretStr(TEST_TOKEN),
                         db_path=tmp_path / "gw.sqlite3"),
-        GatewayRoutes(_env_file=None),
     )  # fmt: skip
 
     @app.middleware("http")

@@ -47,7 +47,7 @@ tests/    both (never shipped)        docs/  documentation
   Every server dependency ends up in the production image.
 * Lab-only code goes in `lab/`. If the server needs something the lab has (e.g. an ID
   format), it lives in `server/` and the lab imports it (`telco_mcp.ids`,
-  `telco_mcp.gateway_routes`).
+  `telco_mcp.endpoints`).
 
 ## 3. Architecture rules (server)
 
@@ -71,6 +71,9 @@ tests/    both (never shipped)        docs/  documentation
   never backend free text, never the rejected value, never internals.
 * **The server calls the gateway with its OWN token**, never the caller's (MCP spec:
   no token passthrough).
+* **Every downstream call is an operation in `endpoints.py`** (path template, fixed
+  method). Paths change per environment via `GATEWAY_ENDPOINT_*` only; never build a
+  gateway URL anywhere else (docs/11).
 * **Downstream calls:** timeouts always; retries only for idempotent GETs on connect
   errors / 502 / 503 / 504; one circuit breaker per API (`clients/resilience.py`).
 * **Lab/demo switches** (`--legacy-sessions`, `MCP_UNSAFE_RAW_FREE_TEXT`, dev JWKS file,
@@ -98,6 +101,8 @@ tests/    both (never shipped)        docs/  documentation
   comment. Renamed/removed settings go in `RETIRED` / `MOVED` in
   `lab/scripts/env_update.py` so `make env-update` tells people.
 * Secrets are `SecretStr`, never logged, never defaulted to a real-looking value.
+* Every settings class sets `hide_input_in_errors=True`: pydantic-settings passes all
+  `.env` entries into each model, so a validation error could otherwise print secrets.
 
 ## 6. Testing (definition of done)
 
@@ -119,6 +124,7 @@ A change isn't done until the docs that describe it are updated in the same PR:
 | Tool added/changed | `make catalog` (regenerates `docs/tool-catalog.md`; a test enforces it), docs/06 if integrators must know |
 | Identity, auth, scopes, registry | docs/04 §3–4, docs/07, docs/08 |
 | New setting / renamed setting | `.env.example`, `env_update.py`, the doc that covers the feature |
+| Gateway endpoint added/changed | `endpoints.py`, mock route, docs/11 table, `.env.example` |
 | Logging, tracing, metrics | docs/10 |
 | Deployment, image, Makefile targets | README (Quick start, targets table), docs/10 §deploy |
 | Parked work / new risk | docs/TODO.md |

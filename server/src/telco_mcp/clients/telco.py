@@ -21,7 +21,6 @@ import httpx
 from telco_mcp.clients.gateway import (
     GatewayBearerAuth,
     GatewayClientSettings,
-    GatewayUrls,
     TokenProvider,
 )
 from telco_mcp.clients.resilience import (
@@ -31,7 +30,7 @@ from telco_mcp.clients.resilience import (
     RetryPolicy,
     with_retry,
 )
-from telco_mcp.gateway_routes import DomainApi, GatewayRoutes
+from telco_mcp.endpoints import DomainApi, GatewayEndpoints
 from telco_mcp.observability.telemetry import instrument_http_client
 
 log = logging.getLogger("telco_mcp.gateway")
@@ -58,12 +57,13 @@ class TelcoApiClient:
         self,
         http: httpx.AsyncClient,
         base_url: str,
-        routes: GatewayRoutes,
+        endpoints: GatewayEndpoints,
         retry: RetryPolicy | None = None,
         breakers: dict[DomainApi, CircuitBreaker] | None = None,
     ) -> None:
         self._http = http
-        self._urls = GatewayUrls(base_url, routes)
+        self._base = base_url.rstrip("/")
+        self._endpoints = endpoints
         self._retry = retry or RetryPolicy()
         self.breakers = breakers or {api: CircuitBreaker(api.value) for api in DomainApi}
 
@@ -71,7 +71,7 @@ class TelcoApiClient:
     def build(
         cls,
         settings: GatewayClientSettings,
-        routes: GatewayRoutes,
+        endpoints: GatewayEndpoints,
         tokens: TokenProvider,
         transport: httpx.AsyncBaseTransport | None = None,
         retry: RetryPolicy | None = None,
@@ -90,14 +90,14 @@ class TelcoApiClient:
             trust_env=settings.allow_non_local,
         )
         instrument_http_client(http)  # client spans + traceparent towards the gateway
-        return cls(http, settings.base_url, routes, retry=retry)
+        return cls(http, settings.base_url, endpoints, retry=retry)
 
     async def aclose(self) -> None:
         await self._http.aclose()
 
     # ------------------------------------------------------------ domain calls
     async def get_account(self, account_id: str) -> dict[str, Any]:
-        return await self._get(DomainApi.ACCOUNT, "account", account_id)
+        return await self._get("get_account", account_id=account_id)
 
     async def list_subscriptions(
         self,
@@ -106,12 +106,10 @@ class TelcoApiClient:
         limit: int = 50,
         cursor: str | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {"account_id": account_id, "limit": limit}
-        if status:
-            params["status"] = status
-        if cursor:
-            params["cursor"] = cursor
-        return await self._get(DomainApi.SUBSCRIPTION, "subscription", params=params)
+        return await self._get(
+            "list_subscriptions",
+            account_id=account_id, status=status or None, limit=limit, cursor=cursor or None,
+        )  # fmt: skip
 
     async def all_subscriptions(self, account_id: str, max_pages: int = 20) -> list[dict[str, Any]]:
         """Follow cursors to collect every subscription (bounded, never unbounded)."""
@@ -126,30 +124,29 @@ class TelcoApiClient:
         raise GatewayUnavailable("Too many subscription pages; refusing to read further.")
 
     async def get_subscription(self, subscription_id: str) -> dict[str, Any]:
-        return await self._get(DomainApi.SUBSCRIPTION, "subscription", subscription_id)
+        return await self._get("get_subscription", subscription_id=subscription_id)
 
     async def get_service(self, service_id: str) -> dict[str, Any]:
-        return await self._get(DomainApi.SERVICE, "service", service_id)
+        return await self._get("get_service", service_id=service_id)
 
     async def get_order(self, order_id: str) -> dict[str, Any]:
-        return await self._get(DomainApi.ORDER, "order", order_id)
+        return await self._get("get_order", order_id=order_id)
 
     async def list_orders(
         self, account_id: str, limit: int = 10, cursor: str | None = None
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {"account_id": account_id, "limit": limit}
-        if cursor:
-            params["cursor"] = cursor
-        return await self._get(DomainApi.ORDER, "order", params=params)
+        return await self._get(
+            "list_orders", account_id=account_id, limit=limit, cursor=cursor or None
+        )
 
     # ---------------------------------------------------------------- plumbing
-    async def _get(
-        self, api: DomainApi, resource: str, *ids: str, params: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
-        url = self._urls.url(api, resource, *ids)
-        breaker = self.breakers[api]
-        # Log fields name the API and resource, never the URL (it carries IDs).
-        fields: dict[str, Any] = {"gateway.api": api.value, "gateway.resource": resource}
+    async def _get(self, operation: str, **values: Any) -> dict[str, Any]:
+        """One GET via the endpoint catalogue (endpoints.py): path, query, encoding."""
+        call = self._endpoints.resolve(operation, **values)
+        url = self._base + call.path
+        breaker = self.breakers[call.api]
+        # Log fields name the API and operation, never the URL or params (they carry IDs).
+        fields: dict[str, Any] = {"gateway.api": call.api.value, "gateway.operation": operation}
         try:
             breaker.before_call()
         except CircuitOpen as exc:
@@ -159,12 +156,15 @@ class TelcoApiClient:
             raise GatewayUnavailable("circuit open") from exc
 
         async def attempt() -> httpx.Response:
-            return await self._http.get(url, params=params)
+            # The route template (no IDs) names the client span (observability/telemetry.py).
+            return await self._http.get(
+                url, params=call.params, extensions={"telco.route": call.route}
+            )
 
         started = time.perf_counter_ns()
         # Every exit path must report to the breaker, or a half-open trial wedges it.
         try:
-            resp = await with_retry(attempt, _retryable_read, self._retry, name=api.value)
+            resp = await with_retry(attempt, _retryable_read, self._retry, name=call.api.value)
         except httpx.TimeoutException as exc:
             breaker.on_failure()
             self._log_failure(fields, started, "timeout", exc)

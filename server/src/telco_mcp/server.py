@@ -12,6 +12,7 @@ Java/Spring equivalent: `@Configuration` classes plus the Spring AI MCP
 server starter, which scans `@McpTool` beans; Spring Security in front.
 """
 
+import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
@@ -23,11 +24,13 @@ from starlette.responses import JSONResponse, Response
 from telco_mcp import __version__
 from telco_mcp.clients.gateway import GatewayClientSettings, StaticTokenProvider
 from telco_mcp.clients.telco import TelcoApiClient
-from telco_mcp.gateway_routes import GatewayRoutes
+from telco_mcp.endpoints import GatewayEndpoints
 from telco_mcp.security.clients import ClientContext, ClientRegistry
 from telco_mcp.security.scoped_server import ScopedMCPServer
 from telco_mcp.state import AppState
 from telco_mcp.tools import account, lines, orders
+
+log = logging.getLogger(__name__)
 
 SERVER_NAME = "telco-mcp-lab"
 
@@ -45,7 +48,11 @@ TelcoFactory = Callable[[], TelcoApiClient]
 
 def default_telco_factory() -> TelcoApiClient:
     settings = GatewayClientSettings()  # type: ignore[call-arg]  # from env / .env
-    return TelcoApiClient.build(settings, GatewayRoutes(), StaticTokenProvider(settings.token))
+    endpoints = GatewayEndpoints()  # GATEWAY_ENDPOINT_* (env / .env), validated here
+    if overrides := endpoints.overrides():
+        log.info("gateway endpoints overridden: %s", sorted(overrides),
+                 extra={"fields": {"gateway.endpoints": overrides}})  # fmt: skip
+    return TelcoApiClient.build(settings, endpoints, StaticTokenProvider(settings.token))
 
 
 def build_server(

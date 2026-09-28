@@ -18,20 +18,22 @@ plugged into a `RestClient` via `OAuth2ClientHttpRequestInterceptor`.
 
 from collections.abc import Generator
 from typing import Protocol
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
 
 import httpx
 from pydantic import Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-from telco_mcp.gateway_routes import DomainApi, GatewayRoutes
 
 _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 class GatewayClientSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="GATEWAY_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="GATEWAY_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # Safety interlock: this lab must only ever talk to the MOCK gateway
@@ -97,22 +99,3 @@ class GatewayBearerAuth(httpx.Auth):
     def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response]:
         request.headers["Authorization"] = f"Bearer {self._provider.get_token()}"
         yield request
-
-
-class GatewayUrls:
-    """Builds `/{microservice}/API/{resource}/{id}` URLs safely.
-
-    Every dynamic segment is percent-encoded with no safe characters, so a
-    value like `../../boorder/API/order` can never escape its segment. Tools
-    validate IDs against strict patterns as well; this is defence in depth.
-    """
-
-    def __init__(self, base_url: str, routes: GatewayRoutes) -> None:
-        self._base = base_url.rstrip("/")
-        self._routes = routes
-
-    def url(self, api: DomainApi, resource: str, *ids: str) -> str:
-        if any(i in ("", ".", "..") for i in ids):
-            raise ValueError("Empty or dot path segments are not allowed.")
-        path = "/".join([resource, *(quote(i, safe="") for i in ids)])
-        return f"{self._base}{self._routes.prefix(api)}/{path}"

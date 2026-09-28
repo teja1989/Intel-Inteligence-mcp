@@ -13,15 +13,15 @@ import json
 import httpx
 from mcp import Client
 
-from telco_mcp.clients.gateway import GatewayClientSettings, GatewayUrls
-from telco_mcp.gateway_routes import DomainApi, GatewayRoutes
+from telco_mcp.clients.gateway import GatewayClientSettings
+from telco_mcp.endpoints import GatewayEndpoints
 from telco_mcp.security.clients import ClientContext, Scope
 from telco_mcp.server import build_server
 
 
 async def main() -> None:
     gw = GatewayClientSettings()  # type: ignore[call-arg]
-    url = GatewayUrls(gw.base_url, GatewayRoutes()).url(DomainApi.ACCOUNT, "account", "ACC-1001")
+    url = gw.base_url + GatewayEndpoints().resolve("get_account", account_id="ACC-1001").path
     async with httpx.AsyncClient() as http:
         resp = await http.get(
             url, headers={"Authorization": f"Bearer {gw.token.get_secret_value()}"}

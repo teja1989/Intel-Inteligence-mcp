@@ -21,7 +21,7 @@ server/        telco-mcp-server  (package telco_mcp)       ← SHIPS as the Dock
                      shaping/   pii (masking) · free_text (injection)
                      errors/    tool_errors (safe messages)
                      observability/  logs (ECS JSON) · access · fields · telemetry (OpenTelemetry)
-                     ids · gateway_routes   (shared contract: ID formats, API paths)
+                     ids · endpoints   (ID formats; the gateway endpoint catalogue)
   config/clients.json  client registry sample (production mounts its own)
 lab/           telco-mcp-lab     (package telco_mcp_lab)   ← NEVER ships: local testing rig
   src/telco_mcp_lab/ mock_apis (fake gateway + APIs) · harness (LLM test client: Claude /
@@ -127,11 +127,11 @@ All settings are environment variables; `.env.example` lists every one with a co
 |---|---|
 | Server | `MCP_ENVIRONMENT` (local/dev/test/production), `MCP_HOST`, `MCP_PORT` / `PORT`, `MCP_PUBLIC_URL`, `MCP_ALLOWED_HOSTS`, `MCP_CLIENTS_CONFIG`, `MCP_STDIO_SCOPES` |
 | Auth (HTTP) | `MCP_JWT_ISSUER`, `MCP_JWT_AUDIENCE`, `MCP_JWT_JWKS_URL` (production) or `MCP_JWT_JWKS_FILE` (local) |
-| Gateway | `GATEWAY_BASE_URL`, `GATEWAY_TOKEN`, `GATEWAY_ALLOW_NON_LOCAL`, timeouts, `GATEWAY_SVC_*` paths |
+| Gateway | `GATEWAY_BASE_URL`, `GATEWAY_TOKEN`, `GATEWAY_ALLOW_NON_LOCAL`, timeouts, `GATEWAY_ENDPOINT_*` (one per operation; [docs/11](docs/11-gateway-endpoints.md)) |
 | Observability | `MCP_LOG_FORMAT` (json in the image), `MCP_LOG_LEVEL`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_TRACES_SAMPLER` |
 
 **Production** (`MCP_ENVIRONMENT=production`) refuses to start with any lab setting:
-stdio, text logs, dev JWKS file, local/reserved URLs, `--legacy-sessions`, raw free
+stdio, text logs, dev JWKS file, mock default endpoints, local/reserved URLs, `--legacy-sessions`, raw free
 text, or registry entries not tagged for production (guard G2, docs/08). Not yet
 production-ready: gateway OAuth token (static today), rate limiting, metrics,
 backpressure, readiness probe, deployment manifests. See [docs/TODO.md](docs/TODO.md).
@@ -160,6 +160,7 @@ backpressure, readiness probe, deployment manifests. See [docs/TODO.md](docs/TOD
 | [08-access-and-environments](docs/08-access-and-environments.md) | who connects how per environment, guardrails G1–G11, accepted risks |
 | [09-connect-dev-tools](docs/09-connect-dev-tools.md) | connecting VS Code / Claude Code to a lower env |
 | [10-observability](docs/10-observability.md) | logs (ECS/ELK), traces (OpenTelemetry), the Docker image, measured cost |
+| [11-gateway-endpoints](docs/11-gateway-endpoints.md) | the endpoint catalogue and how to configure it per environment |
 | [tool-catalog](docs/tool-catalog.md) | generated tool contract + hash |
 | [TODO](docs/TODO.md), [90](docs/90-backlog-external-validation.md), [91](docs/91-backlog-orders-preview-submit.md), [92](docs/92-industry-gap-analysis.md) | parked work, backlog designs, gap analysis |
 

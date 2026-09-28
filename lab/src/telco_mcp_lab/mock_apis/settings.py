@@ -13,7 +13,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class MockApiSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="MOCK_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="MOCK_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # The bearer token the mock gateway accepts. It stands in for the service

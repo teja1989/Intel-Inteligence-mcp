@@ -48,6 +48,8 @@ class ProductionFacts:
     jwt_jwks_url: str | None = None
     jwt_jwks_file: Path | None = None
     registry_problems: tuple[str, ...] = ()
+    # Endpoint catalogue entries still on the lab default (endpoints.py): mock paths.
+    gateway_endpoints_defaulted: tuple[str, ...] = ()
 
 
 def _dev_host(url: str) -> str | None:
@@ -88,6 +90,9 @@ def production_problems(f: ProductionFacts) -> list[str]:
                     problems.append(f"{name} {reason}")
             elif name == "MCP_JWT_JWKS_URL":
                 problems.append("MCP_JWT_JWKS_URL must be set")
+    if f.gateway_endpoints_defaulted:
+        names = ", ".join(f"GATEWAY_ENDPOINT_{n.upper()}" for n in f.gateway_endpoints_defaulted)
+        problems.append(f"gateway endpoints not configured (defaults are the lab mock's): {names}")
     problems.extend(f.registry_problems)
     return problems
 

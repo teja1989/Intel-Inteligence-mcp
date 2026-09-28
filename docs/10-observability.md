@@ -38,7 +38,7 @@ Destination: stdout over HTTP, stderr over stdio (stdout is the protocol there).
 |---|---|---|---|
 | `telco_mcp.access` | INFO (ERROR on 5xx, DEBUG for `/healthz`) | one line per HTTP request | `http.*`, `url.path`, `event.duration` (ns), `mcp.method`, `mcp.tool`, `mcp.protocol_version`, `mcp.client_id` |
 | `telco_mcp.audit` | INFO | one line per tool call (security record) | `event.dataset=telco_mcp.audit`, `event.outcome`, `mcp.tool`, `mcp.client_id`, `mcp.outcome` (ok / tool_error / denied / error), `mcp.resources.*` |
-| `telco_mcp.gateway` | DEBUG success, WARNING failure | each downstream call | `gateway.api`, `gateway.resource`, `http.response.status_code`, `event.duration`, `error.type` |
+| `telco_mcp.gateway` | DEBUG success, WARNING failure | each downstream call | `gateway.api`, `gateway.operation`, `http.response.status_code`, `event.duration`, `error.type` |
 | `telco_mcp.resilience` | WARNING open / retry, INFO recovery | circuit breaker transitions, retries | `gateway.api`, `breaker.from`, `breaker.to`, `retry.reason`, `retry.attempt` |
 | `telco_mcp.security.jwt_verifier` | WARNING | token rejected (reason, never the token) | |
 | `telco_mcp` | INFO / CRITICAL | start (version, transport, environment, format), stop, refused config | |

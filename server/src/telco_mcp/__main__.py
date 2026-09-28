@@ -19,6 +19,7 @@ import sys
 import uvicorn
 
 from telco_mcp import __version__
+from telco_mcp.endpoints import GatewayEndpoints
 from telco_mcp.http_app import build_http_app
 from telco_mcp.observability.logs import configure_logging
 from telco_mcp.observability.telemetry import configure_telemetry
@@ -81,6 +82,9 @@ def _run(args: argparse.Namespace, settings: McpServerSettings, level: str) -> N
         "starting telco-mcp-server %s: transport=%s environment=%s log_format=%s log_level=%s",
         __version__, args.transport, settings.environment, settings.log_format, level,
     )  # fmt: skip
+    # Validate the endpoint catalogue now: a bad GATEWAY_ENDPOINT_* stops startup with
+    # one clear line, instead of a traceback from the server's lifespan later.
+    endpoints = GatewayEndpoints()
     if settings.unsafe_raw_free_text:
         log.warning("MCP_UNSAFE_RAW_FREE_TEXT is ON: free text reaches the model verbatim (demo)")
 
@@ -105,7 +109,9 @@ def _run(args: argparse.Namespace, settings: McpServerSettings, level: str) -> N
         return
 
     port = args.port or settings.port
-    app = build_http_app(settings, legacy_sessions=args.legacy_sessions)
+    app = build_http_app(
+        settings, legacy_sessions=args.legacy_sessions, gateway_endpoints=endpoints
+    )
     if args.legacy_sessions:
         log.warning("--legacy-sessions: legacy clients get in-memory sessions (NOT scalable)")
     log.info("http: listening on http://%s:%s/mcp (stateless)", settings.host, port)

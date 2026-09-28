@@ -1,9 +1,10 @@
 """End-to-end smoke test against a RUNNING mock gateway (`make mocks` first).
 
 Unlike pytest (which runs the app in-process), this goes over real HTTP using
-the MCP server's own gateway client pieces (GatewayUrls + GatewayBearerAuth),
-the same code path the tools will use. Exits non-zero on the first
-unexpected result.
+the MCP server's own endpoint catalogue (telco_mcp/endpoints.py, defaults) and
+GatewayBearerAuth, the same code path the tools use. The write endpoints (draft,
+submission) aren't in the catalogue yet (Phase 4), so they use the mock's prefixes.
+Exits non-zero on the first unexpected result.
 
     uv run python lab/scripts/smoke_mocks.py      (or: make smoke)
 """
@@ -16,11 +17,10 @@ import httpx
 from telco_mcp.clients.gateway import (
     GatewayBearerAuth,
     GatewayClientSettings,
-    GatewayUrls,
     StaticTokenProvider,
 )
-from telco_mcp.gateway_routes import DomainApi as Api
-from telco_mcp.gateway_routes import GatewayRoutes
+from telco_mcp.endpoints import GatewayEndpoints
+from telco_mcp_lab.mock_apis.app import MOCK_PREFIXES
 
 
 def check(label: str, resp: httpx.Response, expected: int) -> dict:
@@ -37,32 +37,33 @@ def check(label: str, resp: httpx.Response, expected: int) -> dict:
 
 def main() -> None:
     s = GatewayClientSettings()  # type: ignore[call-arg]  # reads .env (+ localhost guard)
-    u = GatewayUrls(s.base_url, GatewayRoutes())
+    endpoints = GatewayEndpoints(_env_file=None)  # the mock serves the default paths
+
+    def ep(operation: str, **values: object) -> httpx.URL:
+        call = endpoints.resolve(operation, **values)
+        return httpx.URL(s.base_url + call.path, params=call.params)
+
     try:
         httpx.get(f"{s.base_url}/health", timeout=2).raise_for_status()
     except httpx.HTTPError:
         sys.exit(f"Mock gateway not reachable at {s.base_url}. Start it with: make mocks")
 
-    acc_url = u.url(Api.ACCOUNT, "account", "ACC-1001")
+    acc_url = ep("get_account", account_id="ACC-1001")
     auth = GatewayBearerAuth(StaticTokenProvider(s.token))
     with httpx.Client(auth=auth, timeout=10) as c:
         check("no token is rejected", httpx.get(acc_url), 401)
         acc = check("get account ACC-1001", c.get(acc_url), 200)
         print(f"      notes (raw, UNSAFE for an LLM): {acc['notes'][:70]}...")
-        check(
-            "list ACTIVE subscriptions (trailing slash)",
-            c.get(
-                u.url(Api.SUBSCRIPTION, "subscription") + "/",
-                params={"account_id": "ACC-1001", "status": "ACTIVE"},
-            ),
-            200,
+        subs = ep(
+            "list_subscriptions", account_id="ACC-1001", status="ACTIVE", limit=5, cursor=None
         )
-        check("service details", c.get(u.url(Api.SERVICE, "service", "SVC-1001-01")), 200)
-        check("order status ORD-000123", c.get(u.url(Api.ORDER, "order", "ORD-000123")), 200)
+        check("list ACTIVE subscriptions", c.get(subs), 200)
+        check("service details", c.get(ep("get_service", service_id="SVC-1001-01")), 200)
+        check("order status ORD-000123", c.get(ep("get_order", order_id="ORD-000123")), 200)
         draft = check(
             "create draft (ACC-2001 add EU roaming)",
             c.post(
-                u.url(Api.ORDER, "order", "draft"),
+                f"{s.base_url}{MOCK_PREFIXES['order']}/order/draft",
                 json={
                     "account_id": "ACC-2001",
                     "subscription_id": "SUB-2001-04",
@@ -73,7 +74,7 @@ def main() -> None:
             201,
         )
         print(f"      price: {draft['price_summary']}, expires {draft['expires_at']}")
-        submit_url = u.url(Api.ORDER_SUBMISSION, "submission")
+        submit_url = f"{s.base_url}{MOCK_PREFIXES['order_submission']}/submission"
         body = {"draft_id": draft["draft_id"]}
         key = f"smoke-{uuid.uuid4().hex}"
         check("submit without Idempotency-Key", c.post(submit_url, json=body), 400)

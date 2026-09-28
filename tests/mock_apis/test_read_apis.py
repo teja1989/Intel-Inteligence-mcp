@@ -1,12 +1,9 @@
 """Account, Subscription, Service and Order read APIs."""
 
 import pytest
-from fastapi.testclient import TestClient
 
-from telco_mcp.gateway_routes import GatewayRoutes
-from telco_mcp_lab.mock_apis.app import create_app
 from telco_mcp_lab.mock_apis.data import INJECTED_NOTE
-from tests.conftest import AUTH, TEST_TOKEN
+from tests.conftest import TEST_TOKEN
 
 
 @pytest.mark.security
@@ -75,17 +72,6 @@ class TestGatewayRouting:
         r = client.get("/accounts/ACC-1001")
         assert r.status_code == 404
         assert r.json()["code"] == "NOT_FOUND"
-
-    def test_microservice_names_come_from_config(self, settings, clock):
-        routes = GatewayRoutes(_env_file=None, svc_account="crm-account", api_segment="v2")
-        app = create_app(settings, routes, clock=clock)
-        with TestClient(app, headers=AUTH) as c:
-            assert c.get("/crm-account/v2/account/ACC-1001").status_code == 200
-            assert c.get("/boaccount/API/account/ACC-1001").status_code == 404
-
-    def test_unsafe_microservice_name_rejected_at_startup(self):
-        with pytest.raises(ValueError):
-            GatewayRoutes(_env_file=None, svc_account="../admin")
 
 
 class TestAccounts:

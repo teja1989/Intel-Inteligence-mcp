@@ -14,7 +14,7 @@ from pydantic import SecretStr
 
 from telco_mcp.clients.gateway import GatewayClientSettings, StaticTokenProvider
 from telco_mcp.clients.telco import TelcoApiClient
-from telco_mcp.gateway_routes import GatewayRoutes
+from telco_mcp.endpoints import GatewayEndpoints
 from telco_mcp.http_app import build_http_app
 from telco_mcp.security.clients import ClientContext, Scope
 from telco_mcp.server import build_server
@@ -58,13 +58,8 @@ def settings(tmp_path) -> MockApiSettings:
 
 
 @pytest.fixture
-def routes() -> GatewayRoutes:
-    return GatewayRoutes(_env_file=None)  # placeholder defaults, independent of .env
-
-
-@pytest.fixture
-def app(settings, routes, clock):
-    return create_app(settings, routes, clock=clock)
+def app(settings, clock):
+    return create_app(settings, clock=clock)
 
 
 @pytest.fixture
@@ -92,7 +87,7 @@ def gateway_settings(base_url: str = GATEWAY_URL, **kw) -> GatewayClientSettings
 def make_telco(transport=None, **kw) -> TelcoApiClient:
     s = gateway_settings(**kw)
     return TelcoApiClient.build(
-        s, GatewayRoutes(_env_file=None), StaticTokenProvider(s.token), transport=transport
+        s, GatewayEndpoints(_env_file=None), StaticTokenProvider(s.token), transport=transport
     )
 
 
@@ -184,5 +179,5 @@ def live_gateway(tmp_path) -> Iterator[str]:
     mock_settings = MockApiSettings(
         _env_file=None, gateway_token=SecretStr(TEST_TOKEN), db_path=tmp_path / "live.sqlite3"
     )
-    with LiveServer(create_app(mock_settings, GatewayRoutes(_env_file=None))) as srv:
+    with LiveServer(create_app(mock_settings)) as srv:
         yield srv.url

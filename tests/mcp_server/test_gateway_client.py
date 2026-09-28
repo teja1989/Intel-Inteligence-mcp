@@ -1,4 +1,4 @@
-"""MCP-side gateway client: URL building, token injection, safety interlock."""
+"""MCP-side gateway client: token injection, safety interlock. URLs: test_endpoints.py."""
 
 import httpx
 import pytest
@@ -8,46 +8,14 @@ from pydantic import SecretStr, ValidationError
 from telco_mcp.clients.gateway import (
     GatewayBearerAuth,
     GatewayClientSettings,
-    GatewayUrls,
     StaticTokenProvider,
 )
-from telco_mcp.gateway_routes import DomainApi, GatewayRoutes
-from tests.conftest import TEST_TOKEN
 
 TOKEN = SecretStr("client-side-token-0123456789")
 
 
 def settings(**kw) -> GatewayClientSettings:
     return GatewayClientSettings(_env_file=None, token=TOKEN, **kw)
-
-
-@pytest.fixture
-def urls() -> GatewayUrls:
-    return GatewayUrls("http://127.0.0.1:8081/", GatewayRoutes(_env_file=None))
-
-
-class TestUrls:
-    def test_matches_gateway_convention(self, urls):
-        assert (
-            urls.url(DomainApi.SUBSCRIPTION, "subscription", "SUB-1001-01")
-            == "http://127.0.0.1:8081/bosubscription/API/subscription/SUB-1001-01"
-        )
-        assert (
-            urls.url(DomainApi.ORDER_SUBMISSION, "submission")
-            == "http://127.0.0.1:8081/boordersubmission/API/submission"
-        )
-
-    @pytest.mark.security
-    def test_ids_cannot_escape_their_segment(self, urls):
-        url = urls.url(DomainApi.ACCOUNT, "account", "../../boorder/API/order")
-        assert url.endswith("/boaccount/API/account/..%2F..%2Fboorder%2FAPI%2Forder")
-        assert httpx.URL(url).path.startswith("/boaccount/API/account/")
-
-    @pytest.mark.security
-    @pytest.mark.parametrize("bad", ["", ".", ".."])
-    def test_dot_and_empty_segments_rejected(self, urls, bad):
-        with pytest.raises(ValueError):
-            urls.url(DomainApi.ACCOUNT, "account", bad)
 
 
 @pytest.mark.security
@@ -88,21 +56,11 @@ class TestSafetyInterlock:
 
 class TestBearerAuth:
     @respx.mock
-    def test_token_added_to_every_request(self, urls):
-        route = respx.get(urls.url(DomainApi.ACCOUNT, "account", "ACC-1001")).mock(
-            return_value=httpx.Response(200, json={})
-        )
+    def test_token_added_to_every_request(self):
+        url = "http://127.0.0.1:8081/boaccount/API/account/ACC-1001"
+        route = respx.get(url).mock(return_value=httpx.Response(200, json={}))
         with httpx.Client(auth=GatewayBearerAuth(StaticTokenProvider(TOKEN))) as c:
-            c.get(urls.url(DomainApi.ACCOUNT, "account", "ACC-1001"))
+            c.get(url)
         assert route.calls.last.request.headers["Authorization"] == (
             f"Bearer {TOKEN.get_secret_value()}"
         )
-
-    async def test_client_and_mock_gateway_agree_end_to_end(self, app):
-        """Both sides read gateway_routes.py, so paths can't drift. Prove it."""
-        urls = GatewayUrls("http://127.0.0.1:8081", GatewayRoutes(_env_file=None))
-        auth = GatewayBearerAuth(StaticTokenProvider(SecretStr(TEST_TOKEN)))
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), auth=auth) as c:
-            r = await c.get(urls.url(DomainApi.SERVICE, "service", "SVC-1001-01"))
-        assert r.status_code == 200
-        assert r.json()["service_id"] == "SVC-1001-01"

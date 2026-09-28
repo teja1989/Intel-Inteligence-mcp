@@ -23,7 +23,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class AzureOpenAISettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="AZURE_OPENAI_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="AZURE_OPENAI_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     endpoint: str
@@ -81,6 +85,7 @@ class ClaudeSettings(BaseSettings):
         extra="ignore",
         populate_by_name=True,
         env_ignore_empty=True,  # an empty CHAT_… line must not hide the standard key name
+        hide_input_in_errors=True,  # errors must never echo .env values (keys)
     )
 
     # The standard name works too; CHAT_CLAUDE_API_KEY wins if both are set. (Safe: the
@@ -129,6 +134,7 @@ class GeminiSettings(BaseSettings):
         extra="ignore",
         populate_by_name=True,
         env_ignore_empty=True,  # an empty CHAT_… line must not hide the standard key name
+        hide_input_in_errors=True,  # errors must never echo .env values (keys)
     )
 
     # Standard names work too; CHAT_GEMINI_API_KEY wins. (Safe: base URL and API mode below
@@ -159,7 +165,11 @@ class GeminiSettings(BaseSettings):
 
 class HarnessSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="HARNESS_", env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_prefix="HARNESS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        hide_input_in_errors=True,
     )
 
     # stdio (default): the harness starts the MCP server itself, no token needed; the

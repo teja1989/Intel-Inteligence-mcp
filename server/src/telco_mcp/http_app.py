@@ -12,6 +12,7 @@ import httpx
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.types import ASGIApp
 
+from telco_mcp.endpoints import GatewayEndpoints
 from telco_mcp.observability.access import AccessLogMiddleware
 from telco_mcp.observability.telemetry import instrument_asgi
 from telco_mcp.security.clients import ClientRegistry
@@ -30,9 +31,14 @@ def build_http_app(
     telco_factory: TelcoFactory = default_telco_factory,
     jwt_settings: JwtSettings | None = None,
     jwks_transport: httpx.AsyncBaseTransport | None = None,
+    gateway_endpoints: GatewayEndpoints | None = None,
 ) -> ASGIApp:
     js = jwt_settings or JwtSettings()  # type: ignore[call-arg]  # from env / .env
     registry = ClientRegistry.load(settings.clients_config, settings.environment)
+    defaulted: tuple[str, ...] = ()
+    if settings.environment == "production":  # elsewhere the mock defaults are fine
+        defaulted = tuple((gateway_endpoints or GatewayEndpoints()).defaulted())
+    # (The server's lifespan builds its own GatewayEndpoints from the same environment.)
     # Guardrail G2: before any verifier or route exists (docs/08).
     enforce(
         settings.environment,
@@ -47,6 +53,7 @@ def build_http_app(
             jwt_jwks_url=js.jwks_url,
             jwt_jwks_file=js.jwks_file,
             registry_problems=tuple(registry.problems),
+            gateway_endpoints_defaulted=defaulted,
         ),
     )
     verifier = JwtTokenVerifier(js, JwksCache(js, transport=jwks_transport))
