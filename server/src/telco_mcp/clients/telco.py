@@ -18,6 +18,7 @@ from typing import Any
 
 import httpx
 
+from telco_mcp.clients.analytics_headers import AnalyticsHeaders
 from telco_mcp.clients.gateway import (
     GatewayBearerAuth,
     GatewayClientSettings,
@@ -60,10 +61,12 @@ class TelcoApiClient:
         endpoints: GatewayEndpoints,
         retry: RetryPolicy | None = None,
         breakers: dict[DomainApi, CircuitBreaker] | None = None,
+        analytics: AnalyticsHeaders | None = None,
     ) -> None:
         self._http = http
         self._base = base_url.rstrip("/")
         self._endpoints = endpoints
+        self._analytics = analytics or AnalyticsHeaders("", "")
         self._retry = retry or RetryPolicy()
         self.breakers = breakers or {api: CircuitBreaker(api.value) for api in DomainApi}
 
@@ -90,7 +93,8 @@ class TelcoApiClient:
             trust_env=settings.allow_non_local,
         )
         instrument_http_client(http)  # client spans + traceparent towards the gateway
-        return cls(http, settings.base_url, endpoints, retry=retry)
+        analytics = AnalyticsHeaders(settings.header_client_id, settings.header_tool)
+        return cls(http, settings.base_url, endpoints, retry=retry, analytics=analytics)
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -155,10 +159,13 @@ class TelcoApiClient:
             log.debug("gateway call rejected: circuit open", extra={"fields": fields})
             raise GatewayUnavailable("circuit open") from exc
 
+        # Who caused this call, for gateway analytics (validated identity only).
+        headers = self._analytics.for_current_call()
+
         async def attempt() -> httpx.Response:
             # The route template (no IDs) names the client span (observability/telemetry.py).
             return await self._http.get(
-                url, params=call.params, extensions={"telco.route": call.route}
+                url, params=call.params, headers=headers, extensions={"telco.route": call.route}
             )
 
         started = time.perf_counter_ns()

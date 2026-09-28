@@ -11,6 +11,8 @@
   six files + archive, Makefile to 21 targets, `--legacy-sessions` and note shaping removed
   (notes are never returned now).
 - [x] **Gateway endpoint catalogue** per environment (2026-09-28, docs/operations.md §2).
+- [x] **Analytics headers** to the gateway: validated client ID + tool (2026-09-28).
+  Open: confirm the header names the gateway's analytics expects (`GATEWAY_HEADER_*`).
 - [x] **Repo split** (2026-09-28): `server/` ships, `lab/` never; boundary test + image check.
 - [x] **Logging** (2026-09-28): ECS JSON → ELK, access/audit/downstream/breaker/retry
   events, W3C `traceparent` correlation, OTLP export, Docker image (docs/operations.md §3).

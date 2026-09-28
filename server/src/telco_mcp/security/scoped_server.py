@@ -39,6 +39,7 @@ from opentelemetry import trace
 from pydantic import ValidationError
 
 from telco_mcp.observability import fields as log_fields
+from telco_mcp.request_context import CallIdentity, bind_call
 from telco_mcp.security.audit import audit_tool_call, resource_ids
 from telco_mcp.security.clients import ClientContext, ClientRegistry, resolve_client
 
@@ -112,7 +113,9 @@ class ScopedMCPServer(MCPServer[Any]):
                 raise ToolError(f"Unknown tool: {name}")  # same text as a truly unknown tool
             token = _current_client.set(client)
             try:
-                result = await super().call_tool(name, arguments, context)
+                # Validated identity for downstream use (analytics headers to the gateway).
+                with bind_call(CallIdentity(client.client_id, name)):  # type: ignore[union-attr]
+                    result = await super().call_tool(name, arguments, context)
             finally:
                 _current_client.reset(token)
             outcome = "ok"

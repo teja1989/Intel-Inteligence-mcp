@@ -24,6 +24,8 @@ import httpx
 from pydantic import Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from telco_mcp.clients.analytics_headers import check_header_name
+
 _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
@@ -42,6 +44,9 @@ class GatewayClientSettings(BaseSettings):
     allow_non_local: bool = False
     base_url: str = "http://127.0.0.1:8081"
     token: SecretStr = Field(min_length=16)
+    # Analytics headers on every gateway call (clients/analytics_headers.py). Empty = off.
+    header_client_id: str = "X-Client-Id"
+    header_tool: str = "X-MCP-Tool"
     # Fail fast: a model turn must not hang on a slow backend. (Phase 3 adds
     # retries and a circuit breaker on top of these.)
     connect_timeout_s: float = Field(default=2.0, gt=0, le=30)
@@ -67,6 +72,11 @@ class GatewayClientSettings(BaseSettings):
         if parts.scheme != "https":
             raise ValueError("Non-local gateways must use https (the token would travel in clear).")
         return url
+
+    @field_validator("header_client_id", "header_tool")
+    @classmethod
+    def _header_names(cls, v: str, info: ValidationInfo) -> str:
+        return check_header_name(v.strip(), f"GATEWAY_{info.field_name.upper()}")
 
 
 class TokenProvider(Protocol):

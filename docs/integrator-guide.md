@@ -72,6 +72,8 @@ behind a round-robin load balancer.
 
   **Audience:** tokens are restricted to the MCP server (`aud`), so an agent's
   token can't call the domain APIs directly. **OPEN:** final scope names.
+* Our gateway sees your validated `client_id` and the tool name on each backend call
+  (analytics). The server sets them; headers you send can't change them.
 * We **never** forward your token to our backends. The server calls them with
   its own identity (MCP spec: token passthrough is forbidden).
 

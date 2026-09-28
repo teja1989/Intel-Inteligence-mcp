@@ -11,7 +11,7 @@ All settings are environment variables (locally `.env`; `.env.example` lists eve
 |---|---|
 | Server | `MCP_ENVIRONMENT` (local/dev/test/production), `MCP_HOST`, `MCP_PORT` or `PORT`, `MCP_PUBLIC_URL`, `MCP_ALLOWED_HOSTS`, `MCP_CLIENTS_CONFIG`, `MCP_STDIO_SCOPES`, `MCP_SHUTDOWN_GRACE_S` |
 | Auth | `MCP_JWT_ISSUER`, `MCP_JWT_AUDIENCE`, `MCP_JWT_JWKS_URL` (or `MCP_JWT_JWKS_FILE` locally), optional `MCP_JWT_*` claim/lifetime settings |
-| Gateway | `GATEWAY_BASE_URL`, `GATEWAY_TOKEN`, `GATEWAY_ALLOW_NON_LOCAL`, `GATEWAY_CONNECT_TIMEOUT_S`, `GATEWAY_READ_TIMEOUT_S`, `GATEWAY_ENDPOINT_*` (above) |
+| Gateway | `GATEWAY_BASE_URL`, `GATEWAY_TOKEN`, `GATEWAY_ALLOW_NON_LOCAL`, `GATEWAY_CONNECT_TIMEOUT_S`, `GATEWAY_READ_TIMEOUT_S`, `GATEWAY_ENDPOINT_*` (above), `GATEWAY_HEADER_CLIENT_ID`, `GATEWAY_HEADER_TOOL` (§2, analytics headers) |
 | Observability | `MCP_LOG_FORMAT`, `MCP_LOG_LEVEL`, standard `OTEL_*` (§3) |
 
 Production (`MCP_ENVIRONMENT=production`) refuses lab settings at startup (guard G2,
@@ -97,6 +97,30 @@ settings classes now hide input in errors (tested).
 
 Security controls mutation-checked 2026-09-28 (encoding, dot segments, host check,
 placeholder check, production rule): disabling any one fails tests.
+
+### Headers sent to the gateway (analytics)
+
+Every gateway call carries (added 2026-09-28, `clients/analytics_headers.py`):
+
+| Header | Value | Setting (empty = off) |
+|---|---|---|
+| `Authorization` | `Bearer <the server's OWN gateway token>` | `GATEWAY_TOKEN` |
+| `X-Client-Id` | the **validated** `client_id` of the calling agent (`stdio` locally) | `GATEWAY_HEADER_CLIENT_ID` |
+| `X-MCP-Tool` | the MCP tool that made the call, e.g. `get_account_summary` | `GATEWAY_HEADER_TOOL` |
+| `traceparent` | W3C trace context (joins gateway, MCP and backend logs) | OpenTelemetry (§3) |
+
+* Values come only from the identity validated for this call (JWT → registry), never
+  from headers the caller sent: an agent sending its own `X-Client-Id` changes nothing
+  (tested). A value outside `[A-Za-z0-9._:@/-]{1,128}` is sent as `invalid`.
+* The caller's token is **never** forwarded (MCP spec: no token passthrough; tested).
+* Header names are checked at startup: letters, digits and `-` only, the two must
+  differ, and never a reserved header (`Authorization`, `Host`, `Cookie`, content,
+  trace, `Proxy-*`, `Sec-*`).
+* Cost: about 0.6 µs per gateway call, no I/O, no locks (measured 2026-09-28). The
+  identity lives in a per-request `ContextVar`; a test interleaves two clients' calls
+  and checks no request carries the other's identity.
+* Not verified: which header names the real gateway's analytics expects. Set them
+  with the two settings above once known.
 
 ### When the real API contracts arrive
 

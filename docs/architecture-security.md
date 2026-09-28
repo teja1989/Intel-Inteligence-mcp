@@ -84,7 +84,9 @@ assertion issued by the channel that verified the customer, never from the model
 * **Errors the model sees** (`errors/tool_errors.py`): built from stable codes and
   actionable ("IDs look like ORD-000123…", "retry once"); never backend text, the
   rejected value, URLs, hosts or tokens.
-* **No token passthrough:** the server calls the gateway with its **own** token.
+* **No token passthrough:** the server calls the gateway with its **own** token. For
+  gateway analytics it adds the validated client ID and tool name as headers
+  ([operations.md §2](operations.md)); headers the caller sends can't change them.
 
 ## 5. Resilience
 
