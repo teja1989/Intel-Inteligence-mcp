@@ -55,7 +55,8 @@ class DomainApi(StrEnum):
 @dataclass(frozen=True)
 class Operation:
     api: DomainApi
-    method: Literal["GET"]  # reads only today; writes arrive with Phase 4 (docs/91)
+    # Reads only today; writes arrive with the order flow (docs/archive/91-…-submit.md).
+    method: Literal["GET"]
     params: frozenset[str]  # placeholders the template must use, each exactly once
     default: str  # the lab mock's path
 

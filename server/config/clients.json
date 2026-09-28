@@ -1,5 +1,5 @@
 {
-  "_comment": "Client registry for the HTTP transport. Which client_ids (from the JWT) may call, and the most scopes each may ever get. Optional per-entry \"environments\" (local/dev/test/production): entries load only where tagged, and production requires every entry to be tagged for production. Non-secret. Client IDs and token scope names are PLACEHOLDERS: replace with your real ones. There is NO per-customer boundary: a client with read can read any account (accepted risk, docs/08 §1).",
+  "_comment": "Client registry for the HTTP transport. Which client_ids (from the JWT) may call, and the most scopes each may ever get. Optional per-entry \"environments\" (local/dev/test/production): entries load only where tagged, and production requires every entry to be tagged for production. Non-secret. Client IDs and token scope names are PLACEHOLDERS: replace with your real ones. There is NO per-customer boundary: a client with read can read any account (accepted risk, docs/architecture-security.md §3).",
 
   "scope_map": {
     "_comment": "token scope string -> server permission. Token scopes not listed here are ignored (fail closed).",
@@ -12,7 +12,7 @@
     "lowerenv-shared": {
       "allowed_scopes": ["read"],
       "environments": ["local", "dev", "test"],
-      "description": "The ONE shared client ID for all lower environments (people + automation). read only. Tagged so production refuses to start if it ever appears in a production registry (guardrail G2, docs/08 §5)."
+      "description": "The ONE shared client ID for all lower environments (people + automation). read only. Tagged so production refuses to start if it ever appears in a production registry (guardrail G2, docs/architecture-security.md §6)."
     },
     "care-agent-internal": {
       "allowed_scopes": ["read", "pii:read"],

@@ -19,7 +19,7 @@ Rules:
 argument and is passed to the domain API in the URL, like the APIs themselves
 work. Any client with `read` can read any account. Accepted risk, compensated by
 scopes, PII masking, strict ID formats and an audit record of every account /
-line / order touched (docs/08 §1).
+line / order touched (docs/architecture-security.md §3).
 
 Java/Spring equivalent: a `Converter<Jwt, AbstractAuthenticationToken>` that
 looks up the client and builds authorities from its scopes.

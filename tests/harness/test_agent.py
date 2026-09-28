@@ -151,7 +151,7 @@ class TestHostGuards:
         await run(server_with(mock_telco_factory), model, tracer)
         everything_sent = json.dumps(model.seen_messages)
         assert "ignore previous instructions" not in everything_sent
-        assert "withheld" in everything_sent
+        assert "has_notes" in everything_sent  # the model learns a note exists, not its text
 
 
 @pytest.mark.security

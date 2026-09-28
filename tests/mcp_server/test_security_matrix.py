@@ -1,6 +1,6 @@
 """Security matrix: every tool × {existing, nonexistent, malformed} IDs × scopes.
 
-There is no customer boundary (decision 2026-09-27, docs/08 §1): a client with
+There is no customer boundary (decision 2026-09-27, docs/architecture-security.md §3): a client with
 `read` can read any account by ID. What IS proven here:
   1. Every tool declares a scope; a client without it sees no tools and every
      call is refused.

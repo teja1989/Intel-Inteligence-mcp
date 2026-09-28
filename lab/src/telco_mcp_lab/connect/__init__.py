@@ -1,4 +1,4 @@
-"""Developer-side connector for LOWER environments (docs/08 §3B).
+"""Developer-side connector for LOWER environments (docs/architecture-security.md §6B).
 
 Lets MCP clients (Claude Code, VS Code, Inspector, …) use the shared lower-env client
 credentials without anyone pasting a 2-hour token:

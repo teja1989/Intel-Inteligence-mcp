@@ -1,16 +1,16 @@
-"""End-to-end check of ONE real model with the real MCP server. Run: make model-check LLM=gemini
+"""End-to-end check of the real model (Gemini) with the real MCP server. Run: make model-check
 
-Needs `make mocks` running and the model's key in .env. Uses the harness's MCP
+Needs `make mocks` running and CHAT_GEMINI_API_KEY in .env. Uses the harness's MCP
 transport (stdio by default: it starts the server itself), synthetic data, one
 conversation.
 
 Steps, each PASS/FAIL with a hint:
-  1 provider configured      which model will be used
+  1 model configured         which Gemini model will be used
   2 MCP server reachable     stdio, or HTTP with HARNESS_BEARER_TOKEN
   3 plain reply              key, model name, network/proxy
   4 tool call                the model accepts our tool schemas, calls a tool, and gets
-                             an answer after the result (Claude thinking / Gemini
-                             thought signatures replayed on the second model call)
+                             an answer after the result (thought signatures replayed
+                             on the second model call)
   5 follow-up turn           the conversation history is accepted on the next turn
   6 tool error handled       a not-found tool result is accepted and answered (error
                              results replayed correctly to the provider)
@@ -21,10 +21,10 @@ import sys
 import time
 
 from telco_mcp_lab.harness import models
-from telco_mcp_lab.harness.__main__ import describe, explain, mcp_client
 from telco_mcp_lab.harness.agent import Agent, deny_all
 from telco_mcp_lab.harness.guardrails import Guardrails
 from telco_mcp_lab.harness.prompts import load_system_prompt
+from telco_mcp_lab.harness.runtime import describe, explain, mcp_client
 from telco_mcp_lab.harness.settings import HarnessSettings
 from telco_mcp_lab.harness.trace import Tracer
 
@@ -40,14 +40,13 @@ def step(name: str, ok: bool, detail: str) -> bool:
 async def main() -> int:
     hs = HarnessSettings()
     try:
-        provider = models.resolve(hs.llm)
+        model = models.resolve()
     except RuntimeError as exc:
-        step("1 provider configured", False, str(exc))
+        step("1 model configured", False, str(exc))
         return 1
-    step("1 provider configured", True,
-         f"{models.LABELS[provider]}, model {models.model_name(provider)!r}")  # fmt: skip
+    step("1 model configured", True, f"{models.LABEL}, model {model!r}")
 
-    llm = models.build_chat_model(provider)
+    llm = models.build_chat_model()
     tracer = Tracer(
         out=None, jsonl=hs.trace_dir / f"model-check-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
     )
@@ -107,7 +106,7 @@ async def main() -> int:
 
     failed = [r for r in results if not r[1]]
     print(f"\n{'ALL PASSED' if not failed else f'{len(failed)} FAILED'} "
-          f"({models.LABELS[provider]}). Trace: {hs.trace_dir}/")  # fmt: skip
+          f"({models.LABEL}). Trace: {hs.trace_dir}/")  # fmt: skip
     return 0 if not failed else 1
 
 

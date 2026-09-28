@@ -4,14 +4,14 @@
 > this file is out of date. This is the contract external agents integrate against.
 
 * Server version: `0.4.0`
-* Catalog hash: `sha256:3f50c4c74591dff55f23ba3891eb8129c293e2c822666834f8ee898368237439`
+* Catalog hash: `sha256:563e0a0c39246b7be12150c0f1582f576d52164499587255ef7ebdace377f011`
 * Tools: 5
 
 | Tool | Scope | Read-only | Summary |
 |---|---|---|---|
-| [`get_account_summary`](#get_account_summary) | `read` | yes | Get a one-call overview of a customer account: status and type, the holder's name, when it was opened, how many mobile lines (subscriptions) it has in each status, which plans the active lines are on, and account notes. |
+| [`get_account_summary`](#get_account_summary) | `read` | yes | Get a one-call overview of a customer account: status and type, the holder's name, when it was opened, how many mobile lines (subscriptions) it has in each status, which plans the active lines are on, and whether it has notes. |
 | [`list_subscriptions`](#list_subscriptions) | `read` | yes | List the mobile lines (subscriptions) on an account: subscription ID, phone number, plan and status for each. |
-| [`get_service_details`](#get_service_details) | `read` | yes | Get the technical and feature details of ONE mobile line: network, data allowance, roaming on/off, voicemail, active add-ons, SIM type and line notes. |
+| [`get_service_details`](#get_service_details) | `read` | yes | Get the technical and feature details of ONE mobile line: network, data allowance, roaming on/off, voicemail, active add-ons, SIM type and whether the line has notes. |
 | [`get_order_status`](#get_order_status) | `read` | yes | Get the current status of ONE order by its ID (read-only; it never changes or cancels anything). |
 | [`list_orders`](#list_orders) | `read` | yes | List an account's orders, newest first (read-only). |
 
@@ -22,7 +22,7 @@
 ```text
 Get a one-call overview of a customer account: status and type, the
 holder's name, when it was opened, how many mobile lines (subscriptions) it
-has in each status, which plans the active lines are on, and account notes.
+has in each status, which plans the active lines are on, and whether it has notes.
 
 Use this when the user asks about their account in general, for example
 "what's on my account?", "is my account active?", "how many lines do I have?",
@@ -39,7 +39,7 @@ Needs the account_id (e.g. ACC-1001). If the user hasn't given it, ask for it.
 |---|---|---|---|---|
 | `account_id` | string | **required** | pattern `^ACC-\d{4}$` | The account ID, e.g. ACC-1001. Use the ID the user gave you or one returned by a tool; never guess or invent one. |
 
-Output fields: `account_id`, `account_type`, `status`, `holder_name`, `customer_since`, `subscriptions`, `active_plans`, `notes`
+Output fields: `account_id`, `account_type`, `status`, `holder_name`, `customer_since`, `subscriptions`, `active_plans`, `has_notes`
 
 ## list_subscriptions
 
@@ -75,7 +75,7 @@ Output fields: `account_id`, `items`, `next_cursor`
 
 ```text
 Get the technical and feature details of ONE mobile line: network, data
-allowance, roaming on/off, voicemail, active add-ons, SIM type and line notes.
+allowance, roaming on/off, voicemail, active add-ons, SIM type and whether the line has notes.
 
 Use this for "is roaming on for my number?", "what add-ons does line
 SUB-1001-01 have?", "how much data do I get?".
@@ -88,7 +88,7 @@ list_subscriptions first. Do NOT guess it.
 |---|---|---|---|---|
 | `subscription_id` | string | **required** | pattern `^SUB-\d{4}-\d{2}$` | Subscription (mobile line) ID, e.g. SUB-1001-01. Get it from list_subscriptions; never guess. |
 
-Output fields: `subscription_id`, `service_id`, `msisdn`, `status`, `network`, `data_allowance_gb`, `roaming_enabled`, `voicemail_enabled`, `addons`, `sim_type`, `notes`
+Output fields: `subscription_id`, `service_id`, `msisdn`, `status`, `network`, `data_allowance_gb`, `roaming_enabled`, `voicemail_enabled`, `addons`, `sim_type`, `has_notes`
 
 ## get_order_status
 

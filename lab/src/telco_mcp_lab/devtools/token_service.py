@@ -6,14 +6,15 @@
 
 One client, configured from the environment / .env:
     DEV_TOKEN_SERVICE_CLIENT_ID      (default lowerenv-shared)
-    DEV_TOKEN_SERVICE_CLIENT_SECRET  (required; `make env-tokens` generates one)
+    DEV_TOKEN_SERVICE_CLIENT_SECRET  (required; `make env` generates one)
     DEV_TOKEN_SERVICE_SCOPES         (default "read"; a request may ask for fewer)
 
 Tokens are signed with the dev key from `make dev-keys`, so the MCP server started
 with `make mcp-http` (dev keys) accepts them. Binds to 127.0.0.1 only.
 
 Mirrors the real service's contract as far as we know it; confirm the real token
-endpoint's request format (docs/07 §6) and adjust TELCO_MCP_CLIENT_AUTH to match.
+endpoint's request format (docs/architecture-security.md §2) and adjust
+TELCO_MCP_CLIENT_AUTH to match.
 """
 
 import argparse
@@ -117,7 +118,10 @@ def main() -> None:
     env = {**{k: v for k, v in dotenv_values(".env").items() if v is not None}, **os.environ}
     secret = env.get("DEV_TOKEN_SERVICE_CLIENT_SECRET", "")
     if not secret:
-        raise SystemExit("DEV_TOKEN_SERVICE_CLIENT_SECRET is not set: run `make env-tokens`")
+        raise SystemExit(
+            "DEV_TOKEN_SERVICE_CLIENT_SECRET is not set in .env "
+            "(make env creates it; any random 32+ characters)"
+        )
     app = create_app(
         load_key(),
         client_id=env.get("DEV_TOKEN_SERVICE_CLIENT_ID", "lowerenv-shared"),

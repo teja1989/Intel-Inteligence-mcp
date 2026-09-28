@@ -15,10 +15,10 @@ first. Reference implementations: `tools/orders.py` (simple), `tools/lines.py`
 * **Task, not endpoint.** One tool = one user intent ("summarise an account"), which may
   call several APIs. Don't mirror the REST API 1:1.
 * **Read or write?** Writes (orders) are parked until the API contracts exist; they
-  follow docs/91 (preview → server-minted handle → submit with idempotency key, scope
+  follow docs/archive/91-backlog-orders-preview-submit.md (preview → server-minted handle → submit with idempotency key, scope
   `order:submit`, `destructiveHint`, host confirmation). Don't improvise a write tool.
 * **Scope:** `read` for reads. New scope = registry (`server/config/clients.json`
-  `scope_map`), `Scope` constant, docs/07–08 update, owner approval.
+  `scope_map`), `Scope` constant, docs/architecture-security.md update, owner approval.
 * **What may the model see?** List every output field and why it's needed. Default:
   leave it out. PII (names, numbers) masked unless `pii:read`; IMSI/ICCID, email,
   address never.
@@ -34,7 +34,7 @@ first. Reference implementations: `tools/orders.py` (simple), `tools/lines.py`
   query), and adds timeouts, retry (GET only), the circuit breaker, logging and spans.
 * New API family? Add a `DomainApi` member (own breaker).
 * Follow cursors with a bound (`max_pages`), never unbounded.
-* Update docs/11 (table) and `.env.example` (commented `GATEWAY_ENDPOINT_<OP>`). The
+* Update docs/operations.md §2 (table) and `.env.example` (commented `GATEWAY_ENDPOINT_<OP>`). The
   production guard will require the new variable in production automatically.
 
 ## 2. Mock API (lab/src/telco_mcp_lab/mock_apis)
@@ -88,8 +88,8 @@ Rules:
 * **List tools** filter rows to the requested ID (`if row.get("account_id") ==
   account_id`) even if the backend was asked to filter. Paginate (`limit` ≤ 20,
   `next_cursor`).
-* **Free text** from the backend goes through `shaping/free_text.py` (withheld when it
-  looks like instructions) and is labelled as untrusted data.
+* **Free text** written by people (notes, comments) is never returned: expose a boolean
+  like `has_notes`. A keyword filter can be bypassed; not handing the text over can't.
 * **Errors:** only via `gateway_errors()` and `errors/tool_errors.py` helpers.
 * **New ID argument name?** Add it to `_RESOURCE_ARGS` in `security/audit.py` so the audit
   line records it.
@@ -115,7 +115,7 @@ test fail, restore.
 
 * `make catalog` → commit `docs/tool-catalog.md` (the catalog hash changes: that's a
   contract change for agent teams; mention it in the PR).
-* docs/06 (integrator guide) if agents need to know; docs/04 if a security rule changed;
+* docs/integrator-guide.md if agent teams need to know; docs/architecture-security.md if a security rule changed;
   README if the flow changed.
 * `make check` green.
 

@@ -5,8 +5,8 @@ line / order: validated identifiers only), outcome, latency.
 Never recorded: other arguments, results, tokens. Results hold customer data;
 an audit trail that copied them would become the biggest PII store in the system.
 
-With no customer boundary (docs/08 §1), the resource IDs are what lets you answer
-"which client read which account, when", so they are always recorded.
+With no customer boundary (docs/architecture-security.md §3), the resource IDs are what
+lets you answer "which client read which account, when", so they are always recorded.
 
 Outcomes:
   ok          the tool returned a result

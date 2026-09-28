@@ -7,8 +7,8 @@ import pytest
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 
-from telco_mcp_lab.harness.__main__ import diagnose, mcp_client
 from telco_mcp_lab.harness.agent import Agent
+from telco_mcp_lab.harness.runtime import diagnose, mcp_client
 from telco_mcp_lab.harness.settings import HarnessSettings
 from telco_mcp_lab.harness.trace import Tracer
 from tests.harness.test_agent import ScriptedModel, call, say
@@ -49,12 +49,13 @@ class TestDiagnose:
     @pytest.mark.parametrize(
         ("error", "hint"),
         [
-            ("Error code: 401 - unauthorized", "AZURE_OPENAI_AUTH_HEADER"),
-            ("Error code: 404 - DeploymentNotFound", "/openai/v1/"),
+            ("Error code: 401 - unauthorized", "CHAT_GEMINI_API_KEY"),
+            ("404 NOT_FOUND model", "CHAT_GEMINI_MODEL"),
+            ("400 API_KEY_INVALID", "AI Studio key"),
             ("[SSL: CERTIFICATE_VERIFY_FAILED] self-signed certificate", "CA_BUNDLE"),
             ("ProxyError: 407 Proxy Authentication Required", "HTTPS_PROXY"),
             ("[Errno 111] Connection refused", "make mcp-http"),
-            # a PROXY's 403 must be blamed on the proxy, not on Azure RBAC
+            # a PROXY's 403 must be blamed on the proxy, not on the model API
             ("APIConnectionError <- ProxyError: 403 Forbidden", "Proxy refused"),
         ],
     )
@@ -83,5 +84,5 @@ class TestMcpClient:
             mcp_client(HarnessSettings(_env_file=None, transport="http"))
 
     def test_blank_env_values_mean_unset(self):
-        hs = HarnessSettings(_env_file=None, bearer_token=" ", llm="")
-        assert hs.bearer_token is None and hs.llm is None
+        hs = HarnessSettings(_env_file=None, bearer_token=" ")
+        assert hs.bearer_token is None

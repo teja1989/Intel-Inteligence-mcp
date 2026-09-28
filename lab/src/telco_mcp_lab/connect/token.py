@@ -39,7 +39,7 @@ def http_client(s: ConnectSettings, target: str, **kw: Any) -> httpx.AsyncClient
     return httpx.AsyncClient(
         timeout=s.timeout_s,
         verify=verify,
-        # A corporate proxy must never capture localhost traffic (docs/05).
+        # A corporate proxy must never capture localhost traffic (docs/development.md §3).
         trust_env=s.trust_env and not is_local(target),
         follow_redirects=False,  # a redirect could carry the Authorization header elsewhere
         **kw,

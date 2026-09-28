@@ -1,4 +1,4 @@
-"""Logs, traces and request correlation (docs/10-observability.md).
+"""Logs, traces and request correlation (docs/operations.md §3).
 
 * `logs`      : logging setup; ECS JSON (production) or readable text (local).
 * `fields`    : per-request log fields (client, tool) carried in a ContextVar.

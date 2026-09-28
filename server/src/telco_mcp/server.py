@@ -63,7 +63,6 @@ def build_server(
     client_registry: ClientRegistry | None = None,
     issuer_url: str = "https://auth.telco-mcp-lab.invalid",
     public_url: str = "http://127.0.0.1:8090/mcp",
-    unsafe_raw_free_text: bool = False,
 ) -> ScopedMCPServer:
     if token_verifier is not None and fallback_client is not None:
         raise ValueError("HTTP auth and a fallback client must never be combined")
@@ -74,7 +73,7 @@ def build_server(
     async def lifespan(_: ScopedMCPServer) -> AsyncIterator[AppState]:
         telco = telco_factory()
         try:
-            yield AppState(telco=telco, unsafe_raw_free_text=unsafe_raw_free_text)
+            yield AppState(telco=telco)
         finally:
             await telco.aclose()
 

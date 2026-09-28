@@ -1,22 +1,14 @@
-"""A deliberately dumb round-robin HTTP load balancer, standing in for the
-Cloud Foundry gorouter (no sticky sessions).
+"""Test helper: a deliberately dumb round-robin HTTP load balancer, standing in for the
+Cloud Foundry gorouter / a Kubernetes Service (no sticky sessions).
 
-Each incoming request goes to the NEXT backend in turn, whatever its headers
-say. Responses carry `X-Served-By: <backend port>` so you can watch requests
-alternate between replicas.
-
-    uv run python -m telco_mcp_lab.devtools.round_robin_lb --port 8099 \
-        --backend http://127.0.0.1:8091 --backend http://127.0.0.1:8092
-
-Streams responses (SSE-safe). Lab only: no timeouts tuning, no health checks.
+Each request goes to the NEXT backend in turn. Responses carry `X-Served-By: <backend
+port>` so tests can prove requests were spread over replicas. Streams responses.
 """
 
-import argparse
 import itertools
 from collections.abc import AsyncIterator
 
 import httpx
-import uvicorn
 from starlette.applications import Starlette
 from starlette.background import BackgroundTask
 from starlette.requests import Request
@@ -57,15 +49,3 @@ def build_app(backends: list[str]) -> Starlette:
 
     methods = ["GET", "POST", "DELETE", "OPTIONS"]
     return Starlette(routes=[Route("/{path:path}", proxy, methods=methods)])
-
-
-def main() -> None:
-    p = argparse.ArgumentParser()
-    p.add_argument("--port", type=int, default=8099)
-    p.add_argument("--backend", action="append", required=True)
-    a = p.parse_args()
-    uvicorn.run(build_app(a.backend), host="127.0.0.1", port=a.port, log_level="warning")
-
-
-if __name__ == "__main__":
-    main()

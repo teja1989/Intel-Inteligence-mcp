@@ -32,7 +32,7 @@ Read the touched files in full where the hunk depends on context. Note what the 
 - [ ] **Input:** every ID argument has a strict pattern from `ids.py`; no user input
       concatenated into URLs, paths, SQL, shell, log format strings.
 - [ ] **Output:** explicit allow-list models; PII masked unless `pii:read`; no IMSI/ICCID/
-      email/address; free text through `shaping/free_text.py`.
+      email/address; no free text written by people (notes) in any output.
 - [ ] **Errors:** model-facing messages from `tool_errors.py`; no backend text, rejected
       values, stack traces, hosts or tokens.
 - [ ] **Logging/tracing:** no tokens, arguments, results, bodies, URLs, `Mcp-Param-*`;
@@ -70,7 +70,8 @@ Read the touched files in full where the hunk depends on context. Note what the 
 ## 5. Docs
 
 - [ ] Docs changed with the feature (AGENTS.md §7 table): catalog regenerated for tool
-      changes; docs/04/07/08 for security model; docs/10 for observability; README for
+      changes; docs/architecture-security.md for the security model; docs/operations.md for
+      config, endpoints, observability and the image; docs/development.md for local tooling; README for
       flow, targets or layout; docs/TODO.md for parked work and new risks.
 - [ ] Claims in docs are true (commands run, numbers measured, dates on findings).
 

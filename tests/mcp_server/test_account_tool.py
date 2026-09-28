@@ -120,11 +120,7 @@ class TestSummary:
             "customer_since": "2021-03-14",
             "subscriptions": {"active": 2, "suspended": 1, "terminated": 0, "total": 3},
             "active_plans": ["Standard 50GB"],
-            "notes": {
-                "text": None,
-                "withheld": True,
-                "reason": r.structured_content["notes"]["reason"],
-            },
+            "has_notes": True,  # the text itself is never returned
         }
         # The gateway saw our service token and the account filter.
         req = subs.calls.last.request

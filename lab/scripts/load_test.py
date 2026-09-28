@@ -3,7 +3,7 @@
     make load-test                       # 2000 calls, 20 concurrent, http://127.0.0.1:8090/mcp
     make load-test N=5000 C=50 URL=http://127.0.0.1:8099/mcp   # e.g. the 2-replica cluster
 
-Needs `make mocks`, `make mcp-http` (or mcp-cluster / docker-run) and `make dev-keys`.
+Needs `make mocks`, `make mcp-http` (or docker-run) and `make dev-keys`.
 Prints throughput, error count and latency percentiles. Numbers from the mock gateway
 show the MCP server's own overhead only: repeat against the real lower-env APIs.
 """

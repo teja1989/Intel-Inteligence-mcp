@@ -1,74 +1,30 @@
-"""Which model providers are configured, and how to build one. Shared by CLI and chat UI.
+"""The model behind the harness: Gemini (Gemini Developer API). Nothing here contacts it.
 
-A provider is "configured" when its settings validate from the environment / .env.
-Nothing here contacts a provider.
+One provider on purpose (trimmed 2026-09-28): the harness exists to check that a real
+model uses our tools correctly (`make model-check`), not to compare providers.
 """
-
-from typing import Literal
 
 from pydantic import ValidationError
 
 from telco_mcp_lab.harness.llm import ChatModel
+from telco_mcp_lab.harness.settings import GeminiSettings
 
-Provider = Literal["azure", "claude", "gemini"]
-PROVIDERS: tuple[Provider, ...] = ("claude", "gemini", "azure")
-LABELS = {"claude": "Claude (Anthropic)", "gemini": "Gemini (Google)", "azure": "Azure OpenAI"}
-
-
-def _settings(provider: Provider):  # noqa: ANN202 - one of three settings classes
-    from telco_mcp_lab.harness import settings as s
-
-    if provider == "azure":
-        return s.AzureOpenAISettings()  # type: ignore[call-arg]
-    if provider == "claude":
-        return s.ClaudeSettings()  # type: ignore[call-arg]
-    return s.GeminiSettings()  # type: ignore[call-arg]
+LABEL = "Gemini (Google)"
 
 
-def provider_status(provider: Provider) -> str | None:
-    """None when configured, else a short reason (field names only, never values)."""
+def resolve() -> str:
+    """The configured model's name, or a clear error naming missing FIELDS (never values)."""
     try:
-        _settings(provider)
+        return GeminiSettings().model  # type: ignore[call-arg]
     except ValidationError as exc:
         fields = sorted({".".join(map(str, e["loc"])) for e in exc.errors()})
-        return f"not configured ({', '.join(fields)})"
-    return None
+        raise RuntimeError(
+            f"Gemini is not configured ({', '.join(fields)}): set CHAT_GEMINI_API_KEY "
+            "in .env (see .env.example)"
+        ) from None
 
 
-def configured() -> list[Provider]:
-    return [p for p in PROVIDERS if provider_status(p) is None]
-
-
-def model_name(provider: Provider) -> str:
-    st = _settings(provider)
-    return getattr(st, "deployment", None) or st.model
-
-
-def build_chat_model(provider: Provider) -> ChatModel:
-    st = _settings(provider)
-    if provider == "azure":
-        from telco_mcp_lab.harness.llm import AzureChatModel
-
-        return AzureChatModel(st)
-    if provider == "claude":
-        from telco_mcp_lab.harness.llm_claude import ClaudeChatModel
-
-        return ClaudeChatModel(st)
+def build_chat_model() -> ChatModel:
     from telco_mcp_lab.harness.llm_gemini import GeminiChatModel
 
-    return GeminiChatModel(st)
-
-
-def resolve(provider: Provider | None) -> Provider:
-    """The requested provider, or the first configured one. Raises with a clear message."""
-    if provider is not None:
-        if (why := provider_status(provider)) is not None:
-            raise RuntimeError(f"{LABELS[provider]} is {why}; see .env.example")
-        return provider
-    available = configured()
-    if not available:
-        raise RuntimeError(
-            "No model provider configured: set CHAT_CLAUDE_API_KEY, CHAT_GEMINI_API_KEY "
-            "or AZURE_OPENAI_* in .env (see .env.example)"
-        )
-    return available[0]
+    return GeminiChatModel(GeminiSettings())  # type: ignore[call-arg]

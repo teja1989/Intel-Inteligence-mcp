@@ -19,7 +19,7 @@ Structured fields are passed as `extra={"fields": {"dotted.name": value}}` and n
 on output. Custom (non-ECS) fields live under `mcp.*` and `gateway.*`.
 
 Rules for every log call in this service: never log tokens, secrets, tool arguments
-or results, or backend response bodies. IDs only where docs/10 says so.
+or results, or backend response bodies. IDs only where docs/operations.md §3 says so.
 
 Java/Spring equivalent: logback + `co.elastic.logging:logback-ecs-encoder`, with the
 OpenTelemetry Java agent adding trace.id/span.id to the MDC.

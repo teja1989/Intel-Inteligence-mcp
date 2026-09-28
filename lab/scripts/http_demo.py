@@ -2,7 +2,7 @@
 
     make dev-keys         # once: local RSA key + JWKS (stand-in for the token service)
     make mocks            # terminal 1
-    make mcp-http         # terminal 2 (or: make mcp-cluster for 2 replicas + LB on :8099)
+    make mcp-http         # terminal 2
     make demo-http        # terminal 3   (URL=http://127.0.0.1:8099/mcp for the cluster)
 
 Tokens are minted locally with the dev key. Client IDs come from server/config/clients.json.
@@ -75,7 +75,7 @@ def refused_tokens(url: str) -> None:
 async def main(url: str) -> None:
     await session(url, "lowerenv-shared (scope read): any account by ID, PII masked",
                   tok("lowerenv-shared"),
-                  [("get_account_summary", {"account_id": "ACC-1001"}),  # masked, notes withheld
+                  [("get_account_summary", {"account_id": "ACC-1001"}),  # masked, has_notes only
                    ("get_account_summary", {"account_id": "ACC-2001"}),  # any account (by design)
                    ("get_order_status", {"order_id": "ORD-999999"}),  # not found
                    ("get_account_summary", {"account_id": "ACC-1001/../admin"})])  # fmt: skip

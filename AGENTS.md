@@ -58,29 +58,29 @@ tests/    both (never shipped)        docs/  documentation
 * **Identity = the client + its scopes** (`security/clients.py`). HTTP: JWT → registered
   `client_id` → scopes = token ∩ registry. stdio: `MCP_STDIO_SCOPES`. Tools read the
   client with `current_client()` **where they use it**.
-* **No customer boundary (accepted risk, docs/08 §1.6).** The account ID is a tool
+* **No customer boundary (accepted risk, docs/architecture-security.md §3).** The account ID is a tool
   argument that goes into the API URL. Don't add hidden per-customer logic; changing
   this is an owner decision.
 * **Every tool declares a scope** (`mcp.require_scope`). No scope = invisible to everyone.
 * **Every ID argument has a strict pattern** from `telco_mcp/ids.py`, checked by the
   schema before any backend call.
 * **Tool output is an allow-list** (explicit Pydantic models). Never return a backend
-  payload as-is. PII is masked unless the client has `pii:read`. Free text goes through
-  `shaping/free_text.py`.
+  payload as-is. PII is masked unless the client has `pii:read`. Free text written by
+  people (notes) is never returned: expose `has_notes`, not the text.
 * **Errors the model sees** come from `errors/tool_errors.py`: built from stable codes,
   never backend free text, never the rejected value, never internals.
 * **The server calls the gateway with its OWN token**, never the caller's (MCP spec:
   no token passthrough).
 * **Every downstream call is an operation in `endpoints.py`** (path template, fixed
   method). Paths change per environment via `GATEWAY_ENDPOINT_*` only; never build a
-  gateway URL anywhere else (docs/11).
+  gateway URL anywhere else (docs/operations.md §2).
 * **Downstream calls:** timeouts always; retries only for idempotent GETs on connect
   errors / 502 / 503 / 504; one circuit breaker per API (`clients/resilience.py`).
-* **Lab/demo switches** (`--legacy-sessions`, `MCP_UNSAFE_RAW_FREE_TEXT`, dev JWKS file,
-  stdio, text logs …) must be refused in production by the startup guard
+* **Lab/dev settings** (dev JWKS file, stdio, text logs, mock default endpoints …) must
+  be refused in production by the startup guard
   (`security/environment.py`, G2). A new switch of that kind = a new guard rule + test.
 
-## 4. Logging and observability (docs/10)
+## 4. Logging and observability (docs/operations.md §3)
 
 * Use `logging.getLogger(__name__)` or a named `telco_mcp.*` logger. Never `print`.
 * Structured facts go in `extra={"fields": {"dotted.name": value}}` (ECS names where
@@ -121,12 +121,13 @@ A change isn't done until the docs that describe it are updated in the same PR:
 
 | Change | Update |
 |---|---|
-| Tool added/changed | `make catalog` (regenerates `docs/tool-catalog.md`; a test enforces it), docs/06 if integrators must know |
-| Identity, auth, scopes, registry | docs/04 §3–4, docs/07, docs/08 |
+| Tool added/changed | `make catalog` (regenerates `docs/tool-catalog.md`; a test enforces it), docs/integrator-guide.md if integrators must know |
+| Identity, auth, scopes, registry, accepted risks | docs/architecture-security.md |
 | New setting / renamed setting | `.env.example`, `env_update.py`, the doc that covers the feature |
-| Gateway endpoint added/changed | `endpoints.py`, mock route, docs/11 table, `.env.example` |
-| Logging, tracing, metrics | docs/10 |
-| Deployment, image, Makefile targets | README (Quick start, targets table), docs/10 §deploy |
+| Gateway endpoint added/changed | `endpoints.py`, mock route, docs/operations.md §2 table, `.env.example` |
+| Logging, tracing, metrics | docs/operations.md §3 |
+| Deployment, image, Makefile targets | README (quick start, targets), docs/operations.md §3 |
+| Local tooling (mocks, model check, connector, tests) | docs/development.md |
 | Parked work / new risk | docs/TODO.md |
 | Anything a developer needs to understand the flow | README |
 

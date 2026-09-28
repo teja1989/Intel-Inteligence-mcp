@@ -16,8 +16,8 @@ import pytest
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 
-from telco_mcp_lab.devtools.round_robin_lb import build_app as build_lb
 from tests.conftest import TEST_TOKEN, LiveServer, http_app_in, jwt_token, make_telco
+from tests.round_robin_lb import build_app as build_lb
 
 pytestmark = pytest.mark.protocol
 
@@ -27,12 +27,8 @@ META = {
 }
 
 
-def mcp_app(gateway_url: str, workdir: Path, *, legacy_sessions: bool = False):
-    return http_app_in(
-        workdir,
-        lambda: make_telco(base_url=gateway_url),
-        legacy_sessions=legacy_sessions,
-    )
+def mcp_app(gateway_url: str, workdir: Path):
+    return http_app_in(workdir, lambda: make_telco(base_url=gateway_url))
 
 
 @contextmanager
@@ -140,39 +136,17 @@ class TestHorizontalScaling:
     """Round-robin LB, no stickiness: what Cloud Foundry's gorouter does by default."""
 
     @contextmanager
-    def cluster(self, live_gateway, legacy_sessions: bool) -> Iterator[str]:
-        with (
-            mcp_servers(live_gateway, n=2, legacy_sessions=legacy_sessions) as urls,
-            LiveServer(build_lb(urls)) as lb,
-        ):
+    def cluster(self, live_gateway) -> Iterator[str]:
+        with mcp_servers(live_gateway, n=2) as urls, LiveServer(build_lb(urls)) as lb:
             yield lb.url + "/mcp"
 
     @pytest.mark.parametrize("mode", ["auto", "legacy"])
     async def test_stateless_replicas_serve_both_eras(self, live_gateway, mode):
+        """No stickiness needed. The legacy era only works because the server runs with
+        stateless_http=True: with in-memory sessions, replica B would 404 replica A's."""
         served: list = []
-        with self.cluster(live_gateway, legacy_sessions=False) as url:
+        with self.cluster(live_gateway) as url:
             _, tools, results = await run_client(url, mode, served)
         assert len(tools) == 5 and all(not r.is_error for r in results)
         replicas = {port for port, _ in served}
         assert len(replicas) == 2, "requests really were spread over both replicas"
-
-    async def test_modern_clients_scale_even_with_legacy_sessions_on(self, live_gateway):
-        """2026-07-28 never uses sessions, so the switch doesn't matter to it."""
-        with self.cluster(live_gateway, legacy_sessions=True) as url:
-            version, _, results = await run_client(url, "auto")
-        assert version == "2026-07-28" and all(not r.is_error for r in results)
-
-    async def test_legacy_sessions_break_behind_round_robin(self, live_gateway):
-        """The failure stateless_http prevents: replica B doesn't know replica A's session."""
-        served: list = []
-        with (
-            self.cluster(live_gateway, legacy_sessions=True) as url,
-            pytest.raises(Exception),  # noqa: B017 - SDK wraps it in an ExceptionGroup
-        ):
-            await run_client(url, "legacy", served)
-        # served = (replica, status) in completion order. The replica that answered
-        # `initialize` minted the session; every 404 comes from the OTHER one.
-        session_owner = served[0][0]
-        not_found = [replica for replica, status in served if status == 404]
-        assert not_found, served
-        assert session_owner not in not_found, served

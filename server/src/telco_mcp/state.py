@@ -16,7 +16,6 @@ from telco_mcp.clients.telco import TelcoApiClient
 @dataclass(frozen=True)
 class AppState:
     telco: TelcoApiClient
-    unsafe_raw_free_text: bool = False  # lab demo switch, see shaping/free_text.py
 
 
 def app_state(ctx: Context[Any, Any]) -> AppState:

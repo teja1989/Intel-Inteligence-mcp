@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from telco_mcp_lab.harness import models
-from telco_mcp_lab.harness.__main__ import explain
+from telco_mcp_lab.harness.runtime import explain
 from tests.conftest import LiveServer, http_app_in, jwt_token, make_telco
 from tests.harness.test_agent import ScriptedModel, call, say
 
@@ -33,9 +33,8 @@ def mcp_url(live_gateway, monkeypatch, tmp_path):
 
 
 def use_model(monkeypatch, model: ScriptedModel) -> None:
-    monkeypatch.setattr(models, "resolve", lambda _: "gemini")
-    monkeypatch.setattr(models, "model_name", lambda _: "scripted")
-    monkeypatch.setattr(models, "build_chat_model", lambda _: model)
+    monkeypatch.setattr(models, "resolve", lambda: "scripted")
+    monkeypatch.setattr(models, "build_chat_model", lambda: model)
     model_check.results.clear()
 
 

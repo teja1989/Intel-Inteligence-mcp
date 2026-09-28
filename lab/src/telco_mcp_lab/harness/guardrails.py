@@ -1,10 +1,10 @@
 """Host-side guardrails, enforced in code. Configured in lab/config/guardrails.json.
 
-Where this sits among the controls (see docs/05b):
+Where this sits among the controls (see docs/development.md §3):
   * MCP server (authoritative): auth, scopes, ID formats, schemas, shaping.
   * Host (this module): what the USER sends to the model, and what the MODEL
     says back to the user.
-  * Provider: Azure OpenAI content filters on your deployment.
+  * Provider: the model provider's own safety settings (Gemini).
 
 Input rules (applied in file order to the user's message, before the LLM sees it):
   redact : replace matches (e.g. IMSI/ICCID): minimise what reaches the provider

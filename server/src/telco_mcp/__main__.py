@@ -2,14 +2,9 @@
 
     uv run python -m telco_mcp                      # stdio (MCP_STDIO_SCOPES)
     uv run python -m telco_mcp --transport http     # stateless Streamable HTTP
-    uv run python -m telco_mcp --transport http --port 8091 --legacy-sessions
 
 stdio golden rule: stdout belongs to the protocol, so stdio logs go to stderr. Over
-HTTP, logs go to stdout (ECS JSON in production, docs/10) for the platform to ship.
-
-`--legacy-sessions` exists ONLY to demonstrate the sticky-session problem:
-it turns off `stateless_http`, so pre-2026 clients get an in-memory
-`Mcp-Session-Id` that other replicas don't know. See docs/04.
+HTTP, logs go to stdout (ECS JSON in production) for the platform to ship.
 """
 
 import argparse
@@ -43,7 +38,6 @@ def _main() -> None:
     parser = argparse.ArgumentParser(prog="telco-mcp-server")
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     parser.add_argument("--port", type=int, help="override MCP_PORT (e.g. for a 2nd replica)")
-    parser.add_argument("--legacy-sessions", action="store_true", help="demo only, see docstring")
     parser.add_argument("--log-level", help="override MCP_LOG_LEVEL")
     args = parser.parse_args()
 
@@ -85,8 +79,6 @@ def _run(args: argparse.Namespace, settings: McpServerSettings, level: str) -> N
     # Validate the endpoint catalogue now: a bad GATEWAY_ENDPOINT_* stops startup with
     # one clear line, instead of a traceback from the server's lifespan later.
     endpoints = GatewayEndpoints()
-    if settings.unsafe_raw_free_text:
-        log.warning("MCP_UNSAFE_RAW_FREE_TEXT is ON: free text reaches the model verbatim (demo)")
 
     if args.transport == "stdio":
         # Guardrail G2: stdio has no authentication, so never in production.
@@ -96,24 +88,16 @@ def _run(args: argparse.Namespace, settings: McpServerSettings, level: str) -> N
                 transport="stdio",
                 log_format=settings.log_format,
                 public_url=settings.public_url,
-                unsafe_raw_free_text=settings.unsafe_raw_free_text,
             ),
         )
         client = ClientContext("stdio", frozenset(settings.stdio_scopes.split()), "stdio")
         log.info("stdio: local client, scopes %s", sorted(client.scopes))
-        server = build_server(
-            fallback_client=client,
-            unsafe_raw_free_text=settings.unsafe_raw_free_text,
-        )
+        server = build_server(fallback_client=client)
         server.run(transport="stdio")
         return
 
     port = args.port or settings.port
-    app = build_http_app(
-        settings, legacy_sessions=args.legacy_sessions, gateway_endpoints=endpoints
-    )
-    if args.legacy_sessions:
-        log.warning("--legacy-sessions: legacy clients get in-memory sessions (NOT scalable)")
+    app = build_http_app(settings, gateway_endpoints=endpoints)
     log.info("http: listening on http://%s:%s/mcp (stateless)", settings.host, port)
     uvicorn.run(
         app,

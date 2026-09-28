@@ -1,4 +1,4 @@
-"""Logs and traces (docs/10): ECS JSON shape, trace correlation, redaction, no secrets.
+"""Logs and traces (docs/operations.md §3): ECS JSON, trace correlation, redaction, no secrets.
 
 The end-to-end test runs the real HTTP app with a gateway-style `traceparent` and
 checks that every log line of the request carries that trace, that the downstream

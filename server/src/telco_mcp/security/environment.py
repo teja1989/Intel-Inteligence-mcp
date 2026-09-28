@@ -1,4 +1,6 @@
-"""Guardrail G2 (docs/08): production refuses to start with lab or lower-env settings.
+"""Guardrail G2: production refuses to start with lab or lower-env settings.
+
+Design: docs/architecture-security.md §6.
 
 `MCP_ENVIRONMENT` is one of local | dev | test | production. In production every
 rule below must hold, or the process exits before serving a single request, with
@@ -40,8 +42,6 @@ class ProductionFacts:
 
     transport: str  # "http" | "stdio"
     public_url: str
-    unsafe_raw_free_text: bool
-    legacy_sessions: bool = False
     log_format: str = "json"  # "json" | "text"
     jwt_issuer: str | None = None
     jwt_audience: str | None = None
@@ -71,10 +71,6 @@ def production_problems(f: ProductionFacts) -> list[str]:
         problems.append("stdio transport has no authentication (local use only)")
     if f.log_format != "json":
         problems.append("MCP_LOG_FORMAT must be json (ECS lines for ELK)")
-    if f.legacy_sessions:
-        problems.append("--legacy-sessions keeps sessions in memory (demo; breaks scaling)")
-    if f.unsafe_raw_free_text:
-        problems.append("MCP_UNSAFE_RAW_FREE_TEXT must be false (lab demo switch)")
     if reason := _dev_host(f.public_url):
         problems.append(f"MCP_PUBLIC_URL {reason}")
     if f.transport == "http":

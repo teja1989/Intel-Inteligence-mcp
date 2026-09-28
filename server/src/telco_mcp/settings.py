@@ -25,7 +25,7 @@ class McpServerSettings(BaseSettings):
     )
 
     # local | dev | test | production. production refuses lab/lower-env settings at
-    # startup (guardrail G2, security/environment.py, docs/08).
+    # startup (guardrail G2, security/environment.py, docs/architecture-security.md §6).
     environment: Literal["local", "dev", "test", "production"] = "local"
     # HTTP: which client_ids may call and their allowed scopes (tokens are always JWTs).
     # Relative to the working directory: /app/config in the image; locally MCP_CLIENTS_CONFIG
@@ -57,14 +57,12 @@ class McpServerSettings(BaseSettings):
     # gateway uses when deploying, e.g. ["mcp.internal.example:*"].
     allowed_hosts: list[str] = ["127.0.0.1:*", "localhost:*"]
 
-    # Logging (docs/10). json = ECS lines for ELK (required in production); text = local.
+    # Logging (docs/operations.md §3). json = ECS lines for ELK (required in production);
+    # text = readable local lines.
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     log_format: Literal["json", "text"] = "text"
     # Seconds uvicorn waits for in-flight requests on SIGTERM (CF / Kubernetes rolling deploys).
     shutdown_grace_s: int = Field(default=20, ge=0, le=120)
-
-    # LAB DEMO ONLY: pass free text (notes) to the model verbatim, to see the injection risk.
-    unsafe_raw_free_text: bool = False
 
 
 class JwtSettings(BaseSettings):

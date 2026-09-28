@@ -1,6 +1,6 @@
 """Turn downstream failures into tool errors a model can act on.
 
-MCP has two error channels (see docs/01-concepts.md §3). Everything here uses
+MCP has two error channels (see docs/archive/01-concepts.md §3). Everything here uses
 the *tool execution error* channel: we raise the SDK's `ToolError`, and the
 client receives `isError: true` with our text, which it feeds back to the model
 so the model can self-correct.

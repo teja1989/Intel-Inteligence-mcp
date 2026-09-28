@@ -2,8 +2,8 @@
 
 HTTP always needs a JWT access token from the token service, validated here
 (signature via JWKS, iss, aud, exp, lifetime), then mapped through
-config/clients.json to a client and its scopes. Locally the token service is
-`make dev-token-service` and the keys are `make dev-keys` (docs/07, docs/09).
+config/clients.json to a client and its scopes (docs/architecture-security.md §2).
+Locally, `make dev-keys` stands in for the token service's keys.
 """
 
 import logging
@@ -27,7 +27,6 @@ log = logging.getLogger("telco_mcp")
 def build_http_app(
     settings: McpServerSettings,
     *,
-    legacy_sessions: bool = False,
     telco_factory: TelcoFactory = default_telco_factory,
     jwt_settings: JwtSettings | None = None,
     jwks_transport: httpx.AsyncBaseTransport | None = None,
@@ -39,15 +38,13 @@ def build_http_app(
     if settings.environment == "production":  # elsewhere the mock defaults are fine
         defaulted = tuple((gateway_endpoints or GatewayEndpoints()).defaulted())
     # (The server's lifespan builds its own GatewayEndpoints from the same environment.)
-    # Guardrail G2: before any verifier or route exists (docs/08).
+    # Guardrail G2: before any verifier or route exists (docs/architecture-security.md §6).
     enforce(
         settings.environment,
         ProductionFacts(
             transport="http",
             log_format=settings.log_format,
             public_url=settings.public_url,
-            unsafe_raw_free_text=settings.unsafe_raw_free_text,
-            legacy_sessions=legacy_sessions,
             jwt_issuer=js.issuer,
             jwt_audience=js.audience,
             jwt_jwks_url=js.jwks_url,
@@ -70,14 +67,13 @@ def build_http_app(
         client_registry=registry,
         issuer_url=js.issuer if js.issuer.startswith("https://") else "https://auth.invalid",
         public_url=settings.public_url,
-        unsafe_raw_free_text=settings.unsafe_raw_free_text,
     )
     app = server.streamable_http_app(
         # The key switch for horizontal scaling. The 2026-07-28 path is
         # stateless regardless; this makes the LEGACY (initialize) path build a
         # throwaway per-request session instead of an in-memory one that only
-        # the replica which created it knows about.
-        stateless_http=not legacy_sessions,
+        # the replica which created it knows about (tests/…/test_http_protocol.py).
+        stateless_http=True,
         json_response=True,  # plain JSON bodies instead of SSE for request/response
         host=settings.host,
         transport_security=TransportSecuritySettings(

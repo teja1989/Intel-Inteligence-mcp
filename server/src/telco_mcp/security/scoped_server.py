@@ -14,7 +14,7 @@ We override the two *public* MCPServer methods every request goes through:
 `call_tool()` is also the one choke point for the audit log, for turning
 Pydantic argument errors into short, model-friendly messages, and for the
 `tools/call <name>` span + log fields (tool, client) that every log line inside
-the call carries (docs/10).
+the call carries (docs/operations.md §3).
 
 (The SDK also offers `middleware=[…]`, but documents it as provisional, so we
 build on the stable public methods instead.)

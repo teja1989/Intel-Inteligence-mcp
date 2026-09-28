@@ -1,4 +1,7 @@
-"""Guardrail G2 (docs/08): production refuses lab and lower-env configuration at startup."""
+"""Guardrail G2: production refuses lab and lower-env configuration at startup.
+
+Design: docs/architecture-security.md §6.
+"""
 
 import json
 import os
@@ -30,7 +33,6 @@ ALL_ENDPOINTS_SET = GatewayEndpoints(
 PROD = ProductionFacts(
     transport="http",
     public_url="https://mcp.corp-telco.com/mcp",
-    unsafe_raw_free_text=False,
     jwt_issuer="https://token.corp-telco.com",
     jwt_audience="https://mcp.corp-telco.com/mcp",
     jwt_jwks_url="https://token.corp-telco.com/jwks",
@@ -49,9 +51,7 @@ class TestRules:
         "changes, expected",
         [
             ({"transport": "stdio"}, "stdio"),
-            ({"legacy_sessions": True}, "legacy-sessions"),
             ({"log_format": "text"}, "MCP_LOG_FORMAT must be json"),
-            ({"unsafe_raw_free_text": True}, "UNSAFE_RAW"),
             ({"public_url": "http://mcp.corp-telco.com/mcp"}, "MCP_PUBLIC_URL must be https"),
             ({"public_url": "https://127.0.0.1:8090/mcp"}, "MCP_PUBLIC_URL uses a local"),
             ({"jwt_issuer": "https://token-service.dev.invalid"}, "MCP_JWT_ISSUER"),
@@ -68,14 +68,14 @@ class TestRules:
         assert any(expected in p for p in problems), problems
 
     def test_all_violations_reported_at_once(self):
-        bad = with_(legacy_sessions=True, transport="stdio", unsafe_raw_free_text=True)
+        bad = with_(log_format="text", transport="stdio", public_url="http://x")
         with pytest.raises(UnsafeProductionConfig) as exc:
             enforce("production", bad)
         assert len(exc.value.problems) >= 3
 
     @pytest.mark.parametrize("environment", ["local", "dev", "test"])
     def test_lower_environments_are_not_blocked(self, environment):
-        enforce(environment, with_(unsafe_raw_free_text=True, transport="stdio"))
+        enforce(environment, with_(log_format="text", transport="stdio"))
 
     def test_non_url_issuer_and_audience_are_allowed(self):
         """e.g. Azure AD audiences like api://… or plain issuer names."""
